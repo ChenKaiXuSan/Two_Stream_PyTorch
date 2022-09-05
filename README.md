@@ -1,24 +1,8 @@
-### Deep learning project seed
-Use this seed to start new deep learning / ML projects.
+<div align="center">
 
-- Built in setup.py
-- Built in requirements
-- Examples with MNIST
-- Badges
-- Bibtex
+# Two Stream 3D CNN for Video Classification
 
-#### Goals  
-The goal of this seed is to structure ML paper-code the same so that work can easily be extended and replicated.   
-
-### DELETE EVERYTHING ABOVE FOR YOUR PROJECT  
- 
----
-
-<div align="center">    
- 
-# Your Project Name     
-
-[![Paper](http://img.shields.io/badge/paper-arxiv.1001.2234-B31B1B.svg)](https://www.nature.com/articles/nature14539)
+<!-- [![Paper](http://img.shields.io/badge/paper-arxiv.1001.2234-B31B1B.svg)](https://www.nature.com/articles/nature14539)
 [![Conference](http://img.shields.io/badge/NeurIPS-2019-4b44ce.svg)](https://papers.nips.cc/book/advances-in-neural-information-processing-systems-31-2018)
 [![Conference](http://img.shields.io/badge/ICLR-2019-4b44ce.svg)](https://papers.nips.cc/book/advances-in-neural-information-processing-systems-31-2018)
 [![Conference](http://img.shields.io/badge/AnyConference-year-4b44ce.svg)](https://papers.nips.cc/book/advances-in-neural-information-processing-systems-31-2018)  
@@ -26,64 +10,72 @@ The goal of this seed is to structure ML paper-code the same so that work can ea
 ARXIV   
 [![Paper](http://img.shields.io/badge/arxiv-math.co:1480.1111-B31B1B.svg)](https://www.nature.com/articles/nature14539)
 -->
-![CI testing](https://github.com/PyTorchLightning/deep-learning-project-template/workflows/CI%20testing/badge.svg?branch=master&event=push)
-
+<!-- ![CI testing](https://github.com/PyTorchLightning/deep-learning-project-template/workflows/CI%20testing/badge.svg?branch=master&event=push)  -->
 
 <!--  
 Conference   
--->   
+-->
 </div>
- 
-## Description   
-What it does   
 
-## How to run   
-First, install dependencies   
+## Description
+
+📓 This project made with the PyTorch, PyTorch Lightning, PyTorch Video.
+
+This project implements the task of classifying different medical diseases.
+
+We use a two stream based method combine the 3D CNN network for video classification.
+
+The whole procedure is divided into two steps:  
+
+1. using the detection method to extract the character-centered region and save it as a video.
+2. a hidden-in RAFT based method to extract the optical flow of the corresponding images.
+3. use the RGB images with the corresponding optical flow feed into a 3D CNN based network for training.
+
+Detailed comments are written for most of the methods and classes.
+Have a nice code. 😄
+
+## How to run  
+
+First, install dependencies
+
 ```bash
 # clone project   
-git clone https://github.com/YourGithubName/deep-learning-project-template
+git clone https://github.com/ChenKaiXuSan/Two_Stream_PyTorch.git
 
 # install project   
-cd deep-learning-project-template 
+cd Two_Stream_PyTorch
 pip install -e .   
 pip install -r requirements.txt
- ```   
- Next, navigate to any file and run it.   
- ```bash
+
+```
+
+Next, navigate to any file and run it.  
+
+```bash
 # module folder
 cd project
 
 # run module (example: mnist as your main contribution)   
-python lit_classifier_main.py    
+python main.py --[some paramer]
 ```
 
-## Imports
-This project is setup as a package which means you can now easily import any file into any other file like so:
-```python
-from project.datasets.mnist import mnist
-from project.lit_classifier_main import LitClassifier
-from pytorch_lightning import Trainer
+## About the lib  
 
-# model
-model = LitClassifier()
+stop building wheels. 🛑
 
-# data
-train, val, test = mnist()
+### PyTorch Lightning  
 
-# train
-trainer = Trainer()
-trainer.fit(model, train, val)
+[PyTorch Lightning](https://pytorch-lightning.readthedocs.io/en/latest/) is the deep learning framework for professional AI researchers and machine learning engineers who need maximal flexibility without sacrificing performance at scale. Lightning evolves with you as your projects go from idea to paper/production.
 
-# test using the best model!
-trainer.test(test_dataloaders=test)
-```
+### PyTorch Video  
 
-### Citation   
-```
-@article{YourName,
-  title={Your Title},
-  author={Your team},
-  journal={Location},
-  year={Year}
-}
-```   
+[link](https://pytorchvideo.org/)
+A deep learning library for video understanding research.
+
+### detectron2
+
+[Detectron2](https://detectron2.readthedocs.io/en/latest/index.html) is Facebook AI Research's next generation library that provides state-of-the-art detection and segmentation algorithms. It is the successor of Detectron and maskrcnn-benchmark. It supports a number of computer vision research projects and production applications in Facebook.
+
+### Torch Metrics
+
+[TorchMetrics](https://torchmetrics.readthedocs.io/en/latest/) is a collection of 80+ PyTorch metrics implementations and an easy-to-use API to create custom metrics.
