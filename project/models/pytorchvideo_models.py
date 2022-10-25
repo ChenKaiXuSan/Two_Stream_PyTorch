@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from models.make_model import MakeVideoModule
+from models.optical_flow import Optical_flow
 
 from pytorch_lightning import LightningModule
 
@@ -11,29 +12,30 @@ from utils.metrics import *
 
 # %%
 
+
 class WalkVideoClassificationLightningModule(LightningModule):
-    
+
     def __init__(self, hparams):
         super().__init__()
 
         # return model type name
-        self.model_type=hparams.model
+        self.model_type = hparams.model
         self.img_size = hparams.img_size
 
-        self.lr=hparams.lr
+        self.lr = hparams.lr
         self.num_class = hparams.model_class_num
 
+        # model define
+        self.optical_flow_model = Optical_flow()
         self.model = MakeVideoModule(hparams)
 
-        # select the network structure 
+        # select the network structure
         if self.model_type == 'resnet':
-            self.model=self.model.make_walk_resnet()
+            self.model_rgb = self.model.make_walk_resnet(3)
+            self.model_flow = self.model.make_walk_resnet(2)
 
         elif self.model_type == 'csn':
-            self.model=self.model.make_walk_csn()
-
-        elif self.model_type == 'x3d':
-            self.model = self.model.make_walk_x3d()
+            self.model = self.model.make_walk_csn()
 
         # save the hyperparameters to the file and ckpt
         self.save_hyperparameters()
@@ -43,12 +45,6 @@ class WalkVideoClassificationLightningModule(LightningModule):
         self._precision = get_Precision(self.num_class)
         self._confusion_matrix = get_Confusion_Matrix()
 
-        # self.dice = get_Dice()
-        # self.average_precision = get_Average_precision(self.num_class)
-        # self.AUC = get_AUC()
-        # self.f1_score = get_F1Score()
-        # self.precision_recall = get_Precision_Recall()
-        
     def forward(self, x):
         return self.model(x)
 
@@ -64,22 +60,36 @@ class WalkVideoClassificationLightningModule(LightningModule):
             loss: the calc loss
         '''
 
-        label = batch['label'].detach()
+        label = batch['label'].detach()  # b, c, t, h, w
+        video = batch['video'].detach()  # b, c, t, h, w
+
+        self.model_rgb.train()
+        self.model_flow.train()
+
+        # pred the optical flow
+        video_flow = self.optical_flow_model.process_batch(video)  # b, c, t, h, w
+        video_rgb = video[:, :, :-1, :, :]  # dont use the last frame imge
 
         # classification task
-        y_hat = self.model(batch["video"])
+        pred_video_rgb = self.model_rgb(video_rgb)
+        pred_video_flow = self.model_flow(video_flow)
 
-        y_hat_sigmoid = torch.sigmoid(y_hat).squeeze(dim=-1)
-
+        pred_video_rgb_sigmoid = torch.sigmoid(pred_video_rgb).squeeze(dim=-1)
+        pred_video_flow_sigmoid = torch.sigmoid(pred_video_flow).squeeze(dim=-1)
 
         # squeeze(dim=-1) to keep the torch.Size([1]), not null.
-        loss = F.binary_cross_entropy_with_logits(y_hat.squeeze(dim=-1), label.float())
-        soft_margin_loss = F.soft_margin_loss(y_hat_sigmoid, label.float())
+        loss_rgb = F.binary_cross_entropy_with_logits(pred_video_rgb.squeeze(dim=-1), label.float())
+        loss_flow = F.binary_cross_entropy_with_logits(pred_video_flow.squeeze(dim=-1), label.float())
 
-        accuracy = self._accuracy(y_hat_sigmoid, label)
+        loss = loss_rgb + loss_flow
+
+        # soft_margin_loss = F.soft_margin_loss(pred_video_sigmoid, label.float())
+
+        accuracy_rgb = self._accuracy(pred_video_rgb_sigmoid, label)
+        accuracy_flow = self._accuracy(pred_video_flow_sigmoid, label)
 
         self.log('train_loss', loss)
-        self.log('train_acc', accuracy)
+        self.log('train_acc', accuracy_rgb)
 
         return loss
 
@@ -90,7 +100,7 @@ class WalkVideoClassificationLightningModule(LightningModule):
     #     Args:
     #         outputs (list): a list of the train_step return value.
     #     '''
-        
+
     #     # log epoch metric
     #     # self.log('train_acc_epoch', self.accuracy)
     #     pass
@@ -108,29 +118,50 @@ class WalkVideoClassificationLightningModule(LightningModule):
             accuract: selected accuracy result.
         '''
 
-        label = batch['label'].detach()
+        # input and model define
+        label = batch['label'].detach()  # b, c, t, h, w
+        video = batch['video'].detach()  # b, c, t, h, w
 
-        preds = self.model(batch["video"])
+        self.model_rgb.eval()
+        self.model_flow.eval()
 
-        preds_sigmoid = torch.sigmoid(preds).squeeze(dim=-1)
+        # pred the optical flow base RAFT
+        video_flow = self.optical_flow_model.process_batch(video)  # b, c, t, h, w
+        video_rgb = video[:, :, :-1, :, :]  # dont use the last frame imge
 
-        # val_loss=F.cross_entropy(preds, label)
-        val_loss = F.binary_cross_entropy_with_logits(preds.squeeze(dim=-1), label.float())
+        # classification task
+        with torch.no_grad():
+            pred_video_rgb = self.model_rgb(video_rgb)
+            pred_video_flow = self.model_flow(video_flow)
+
+        pred_video_rgb_sigmoid = torch.sigmoid(pred_video_rgb).squeeze(dim=-1)
+        pred_video_flow_sigmoid = torch.sigmoid(pred_video_flow).squeeze(dim=-1)
+
+        # squeeze(dim=-1) to keep the torch.Size([1]), not null.
+        loss_rgb = F.binary_cross_entropy_with_logits(pred_video_rgb.squeeze(dim=-1), label.float())
+        loss_flow = F.binary_cross_entropy_with_logits(pred_video_flow.squeeze(dim=-1), label.float())
+
+        loss = loss_rgb + loss_flow
+
+        # soft_margin_loss = F.soft_margin_loss(pred_video_sigmoid, label.float())
 
         # calc the metric, function from torchmetrics
-        accuracy = self._accuracy(preds_sigmoid, label)
+        accuracy_rgb = self._accuracy(pred_video_rgb_sigmoid, label)
+        accuracy_flow = self._accuracy(pred_video_flow_sigmoid, label)
 
-        precision = self._precision(preds_sigmoid, label)
+        precision_rgb = self._precision(pred_video_rgb_sigmoid, label)
+        precision_flow = self._precision(pred_video_flow_sigmoid, label)
 
-        confusion_matrix = self._confusion_matrix(preds_sigmoid, label)
+        confusion_matrix = self._confusion_matrix(pred_video_rgb_sigmoid, label)
 
         # log the val loss and val acc, in step and in epoch.
-        self.log_dict({'val_loss': val_loss, 'val_acc': accuracy, 'val_average_precision': precision}, on_step=False, on_epoch=True)
-        
-        return accuracy
+        self.log_dict({'val_loss': loss, 'val_acc_rgb': accuracy_rgb, 'val_precision_rgb': precision_rgb,
+                       'val_acc_flow': accuracy_flow, 'val_precision_flow': precision_flow}, on_step=False, on_epoch=True)
+
+        return accuracy_rgb
 
     # def validation_epoch_end(self, outputs):
-        
+
     #     val_metric = torch.stack(outputs, dim=0)
 
     #     final_acc = torch.sum(val_metric) / len(val_metric)
@@ -148,38 +179,54 @@ class WalkVideoClassificationLightningModule(LightningModule):
             batch_idx (_type_): _description_
         '''
 
-        labels = batch['label'].detach()
+        # input and model define
+        label = batch['label'].detach()  # b
+        video = batch['video'].detach()  # b, c, t, h, w
 
-        preds = self.model(batch["video"])
+        self.model_rgb.eval()
+        self.model_flow.eval()
 
-        preds_softmax = torch.softmax(preds, dim=-1)
-        preds_sigmoid = torch.sigmoid(preds).squeeze()
+        # pred the optical flow base RAFT
+        video_flow = self.optical_flow_model.process_batch(video)  # b, c, t, h, w
+        video_rgb = video[:, :, :-1, :, :]  # dont use the last frame image (b, c, t, h, w)
 
-        # test_loss = F.cross_entropy(preds, labels)
-        test_loss = F.binary_cross_entropy_with_logits(preds.squeeze(), labels.float())
+        # eval model, feed data here
+        with torch.no_grad():
+            pred_video_rgb = self.model_rgb(video_rgb)
+            pred_video_flow = self.model_flow(video_flow)
 
-        # calculate acc 
-        accuracy = self._accuracy(preds_sigmoid, labels)
+        pred_video_rgb_sigmoid = torch.sigmoid(pred_video_rgb).squeeze(dim=-1)
+        pred_video_flow_sigmoid = torch.sigmoid(pred_video_flow).squeeze(dim=-1)
 
-        average_precision = self._precision(preds_sigmoid, labels)
-        # AUC = self.AUC(F.softmax(test_pred, dim=-1), batch["label"])
-        # f1_score = self.f1_score(preds_softmax, labels)
-        # precision, recall, threshold = self.precision_recall(F.softmax(test_pred, dim=-1), batch["label"])
+        # squeeze(dim=-1) to keep the torch.Size([1]), not null.
+        loss_rgb = F.binary_cross_entropy_with_logits(pred_video_rgb.squeeze(dim=-1), label.float())
+        loss_flow = F.binary_cross_entropy_with_logits(pred_video_flow.squeeze(dim=-1), label.float())
 
-        # self.dice(test_pred, target)
+        loss = loss_rgb + loss_flow
+
+        # calc the metric, function from torchmetrics
+        accuracy_rgb = self._accuracy(pred_video_rgb_sigmoid, label)
+        accuracy_flow = self._accuracy(pred_video_flow_sigmoid, label)
+
+        precision_rgb = self._precision(pred_video_rgb_sigmoid, label)
+        precision_flow = self._precision(pred_video_flow_sigmoid, label)
+
+        confusion_matrix = self._confusion_matrix(pred_video_rgb_sigmoid, label)
 
         # log the test loss, and test acc, in step and in epoch
-        self.log_dict({'test_loss': test_loss, 'test_acc': accuracy, 'test_average_precision': average_precision}, on_step=False, on_epoch=True)
+        self.log_dict({'test_loss': loss, 'test_acc_rgb': accuracy_rgb, 'test_acc_flow': accuracy_flow,
+                      'test_precision_rgb': precision_rgb, 'test_precision_flow': precision_flow}, on_step=False, on_epoch=True)
 
-        return accuracy
-        
+        return accuracy_rgb, accuracy_flow
+
     def test_epoch_end(self, outputs):
 
-        test_metric = torch.stack(outputs, dim=0)
+        # test_metric = torch.stack(outputs, dim=0)
 
-        final_acc = torch.sum(test_metric) / len(test_metric)
-        
-        print(final_acc)
+        # final_acc = torch.sum(test_metric) / len(test_metric)
+
+        # print(final_acc)
+        pass
 
     def configure_optimizers(self):
         '''
