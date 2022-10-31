@@ -98,8 +98,8 @@ class WalkDataModule(LightningDataModule):
                             UniformTemporalSubsample(self.uniform_temporal_subsample_num),
                             
                             # dived the pixel from [0, 255] tp [0, 1], to save computing resources.
-                            Div255(),
-                            Normalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225)),
+                            # Div255(),
+                            # Normalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225)),
 
                             # RandomShortSideScale(min_size=256, max_size=320),
                             # RandomCrop(self._IMG_SIZE),

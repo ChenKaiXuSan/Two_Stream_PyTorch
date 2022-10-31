@@ -2,8 +2,6 @@
 from pytorchvideo.models import x3d, resnet, csn, slowfast, r2plus1d
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
 
 # %%
 
@@ -33,7 +31,7 @@ class MakeVideoModule(nn.Module):
             activation=nn.ReLU,
         )
 
-    def make_walk_resnet(self, input_channel):
+    def make_walk_resnet(self, input_channel) -> nn.Module:
 
         if self.transfor_learning:
             slow = torch.hub.load('facebookresearch/pytorchvideo', 'slow_r50', pretrained=True)
@@ -53,28 +51,3 @@ class MakeVideoModule(nn.Module):
             )
 
         return slow
-
-    def make_walk_x3d(self) -> nn.Module:
-        return x3d.create_x3d(
-            input_channel=3,
-            model_num_class=self.model_class_num,
-            norm=nn.BatchNorm3d,
-            activation=nn.ReLU,
-            input_clip_length=4,
-        )
-
-    # todo question with input tensor
-    def make_walk_slowfast(self) -> nn.Module:
-        return slowfast.create_slowfast(
-
-        )
-
-    # todo question with input tensor
-    def make_walk_r2plus1d(self) -> nn.Module:
-        return r2plus1d.create_r2plus1d(
-            input_channel=3,
-            model_num_class=self.model_class_num,
-            model_depth=self.model_depth,
-            norm=nn.BatchNorm3d,
-            activation=nn.ReLU,
-        )

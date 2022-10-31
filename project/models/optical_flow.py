@@ -48,6 +48,15 @@ class Optical_flow(nn.Module):
         return pred_flows # f, c, h, w
     
     def process_batch(self, batch):
+        '''
+        predict one batch optical flow.
+
+        Args:
+            batch (nn.Tensor): batches of videos. (b, c, f, h, w)
+
+        Returns:
+            nn.Tensor: stacked predict optical flow, (b, 2, f, h, w)
+        '''        
         
         b, c, f, h, w = batch.shape
 

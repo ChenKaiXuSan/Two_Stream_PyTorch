@@ -42,6 +42,10 @@ def get_parameters():
                         default=16, help='num frame from the clip duration')
     parser.add_argument('--gpu_num', type=int, default=0, choices=[0, 1], help='the gpu number whicht to train')
 
+    # Transfor_learning
+    parser.add_argument('--transfor_learning', action='store_true', help='if use the transformer learning')
+    parser.add_argument('--fix_layer', type=str, default='all', choices=['all', 'head', 'stem_head', 'stage_head'], help="select the ablation study within the choices ['all', 'head', 'stem_head', 'stage_head'].")
+
     # TTUR
     parser.add_argument('--lr', type=float, default=0.0001, help='learning rate for optimizer')
     parser.add_argument('--beta1', type=float, default=0.5)
