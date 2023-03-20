@@ -4,7 +4,6 @@ a pytorch lightning data module based dataloader, for train/val/test dataset pre
 '''
 
 # %%
-import matplotlib.pylab as plt
 
 from torchvision.transforms import (
     Compose,
@@ -78,14 +77,14 @@ class WalkDataModule(LightningDataModule):
     def __init__(self, opt):
         super().__init__()
         self._DATA_PATH = opt.data_path
-        self._SPLIT_PAD_DATA_PATH = opt.split_pad_data_path
-        self._SPLIT_DATA_PATH = opt.split_data_path
-        self._CLIP_DURATION = opt.clip_duration
+        self._TARIN_PATH = opt.train_path
 
         self._BATCH_SIZE = opt.batch_size
         self._NUM_WORKERS = opt.num_workers
         self._IMG_SIZE = opt.img_size
 
+        # frame rate
+        self._CLIP_DURATION = opt.clip_duration
         self.uniform_temporal_subsample_num = opt.uniform_temporal_subsample_num
 
         self.train_transform = Compose(
@@ -98,8 +97,8 @@ class WalkDataModule(LightningDataModule):
                             UniformTemporalSubsample(self.uniform_temporal_subsample_num),
                             
                             # dived the pixel from [0, 255] tp [0, 1], to save computing resources.
-                            # Div255(),
-                            # Normalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225)),
+                            Div255(),
+                            Normalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225)),
 
                             # RandomShortSideScale(min_size=256, max_size=320),
                             # RandomCrop(self._IMG_SIZE),
@@ -114,23 +113,6 @@ class WalkDataModule(LightningDataModule):
             ]
         )
 
-        # self.train_transform = create_video_transform(
-        #     mode='train',
-        #     video_key='video',
-        #     num_samples=self.uniform_temporal_subsample_num,
-        #     crop_size=self._IMG_SIZE,
-        #     convert_to_float=False,
-        #     aug_type='augmix'
-        # )
-
-        self.val_transform = create_video_transform(
-            mode='val',
-            video_key='video',
-            num_samples=self.uniform_temporal_subsample_num,
-            crop_size=self._IMG_SIZE,
-            convert_to_float=False,
-        )
-
     def prepare_data(self) -> None:
         pass
 
@@ -142,25 +124,29 @@ class WalkDataModule(LightningDataModule):
             stage (Optional[str], optional): trainer.stage, in ('fit', 'validate', 'test', 'predict'). Defaults to None.
         '''
 
+        print("#" * 100)
+        print("run pre process model!", self._TARIN_PATH)
+        print("#" * 100)
+
         # if stage == "fit" or stage == None:
         if stage in ("fit", None):
             self.train_dataset = WalkDataset(
-                data_path=os.path.join(self._SPLIT_DATA_PATH, "train"),
+                data_path=os.path.join(self._TARIN_PATH, "train"),
                 clip_sampler=make_clip_sampler("random", self._CLIP_DURATION),
                 transform=self.train_transform,
             )
 
         if stage in ("fit", "validate", None):
             self.val_dataset = WalkDataset(
-                data_path=os.path.join(self._SPLIT_DATA_PATH, "val"),
-                clip_sampler=make_clip_sampler("random", self._CLIP_DURATION),
+                data_path=os.path.join(self._TARIN_PATH, "val"),
+                clip_sampler=make_clip_sampler("uniform", self._CLIP_DURATION),
                 transform=self.train_transform,
             )
 
         if stage in ("predict", "test", None):
             self.test_pred_dataset = WalkDataset(
-                data_path=os.path.join(self._SPLIT_DATA_PATH, "val"),
-                clip_sampler=make_clip_sampler("random", self._CLIP_DURATION),
+                data_path=os.path.join(self._TARIN_PATH, "val"),
+                clip_sampler=make_clip_sampler("uniform", self._CLIP_DURATION),
                 transform=self.train_transform
             )
 

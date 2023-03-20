@@ -8,9 +8,8 @@ import os
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning import loggers as pl_loggers
 # callbacks
-from pytorch_lightning.callbacks import TQDMProgressBar, RichModelSummary, RichProgressBar, ModelCheckpoint
+from pytorch_lightning.callbacks import TQDMProgressBar, RichModelSummary, ModelCheckpoint, EarlyStopping
 from pl_bolts.callbacks import PrintTableMetricsCallback, TrainingDataMonitor
-from utils.utils import get_ckpt_path
 
 from dataloader.data_loader import WalkDataModule
 from models.pytorchvideo_models import WalkVideoClassificationLightningModule
@@ -27,24 +26,25 @@ def get_parameters():
     parser = ArgumentParser()
 
     # model hyper-parameters
-    parser.add_argument('--model', type=str, default='resnet', choices=['resnet', 'csn', 'x3d'])
+    parser.add_argument('--model', type=str, default='multi', choices=['multi', 'single'])
     parser.add_argument('--img_size', type=int, default=224)
     parser.add_argument('--version', type=str, default='test', help='the version of logger, such data')
     parser.add_argument('--model_class_num', type=int, default=1, help='the class num of model')
     parser.add_argument('--model_depth', type=int, default=50, choices=[50, 101, 152], help='the depth of used model')
 
     # Training setting
-    parser.add_argument('--max_epochs', type=int, default=100, help='numer of epochs of training')
-    parser.add_argument('--batch_size', type=int, default=1, help='batch size for the dataloader')
-    parser.add_argument('--num_workers', type=int, default=2, help='dataloader for load video')
+    parser.add_argument('--max_epochs', type=int, default=50, help='numer of epochs of training')
+    parser.add_argument('--batch_size', type=int, default=8, help='batch size for the dataloader')
+    parser.add_argument('--num_workers', type=int, default=4, help='dataloader for load video')
     parser.add_argument('--clip_duration', type=int, default=1, help='clip duration for the video')
     parser.add_argument('--uniform_temporal_subsample_num', type=int,
-                        default=16, help='num frame from the clip duration')
+                        default=8, help='num frame from the clip duration')
     parser.add_argument('--gpu_num', type=int, default=0, choices=[0, 1], help='the gpu number whicht to train')
 
     # Transfor_learning
     parser.add_argument('--transfor_learning', action='store_true', help='if use the transformer learning')
-    parser.add_argument('--fix_layer', type=str, default='all', choices=['all', 'head', 'stem_head', 'stage_head'], help="select the ablation study within the choices ['all', 'head', 'stem_head', 'stage_head'].")
+    # pre process flag
+    parser.add_argument('--pre_process_flag', action='store_true', help='if use the pre process video, which detection.')
 
     # TTUR
     parser.add_argument('--lr', type=float, default=0.0001, help='learning rate for optimizer')
@@ -53,16 +53,10 @@ def get_parameters():
 
     # Path
     parser.add_argument('--data_path', type=str, default="/workspace/data/dataset/", help='meta dataset path')
-    parser.add_argument('--split_data_path', type=str,
-                        default="/workspace/data/splt_dataset_512", help="split dataset path")
-    parser.add_argument('--split_pad_data_path', type=str, default="/workspace/data/splt_pad_dataset",
-                        help="split and pad dataset with detection method.")
+    parser.add_argument('--seg_data_path', type=str, default="/workspace/data/segmentation_dataset_512",
+                        help="segmentation dataset with mediapipe, with 5 fold cross validation.")
 
     parser.add_argument('--log_path', type=str, default='./logs', help='the lightning logs saved path')
-
-    # using pretrained
-    parser.add_argument('--pretrained_model', type=bool, default=False,
-                        help='if use the pretrained model for training.')
 
     # add the parser to ther Trainer
     # parser = Trainer.add_argparse_args(parser)
@@ -73,9 +67,6 @@ def get_parameters():
 
 def train(hparams):
 
-    # connect the version + model + depth
-    hparams.version = hparams.version + '_' + hparams.model + '_depth' + str(hparams.model_depth)
-
     # fixme will occure bug, with deterministic = true
     # seed_everything(42, workers=True)
 
@@ -85,54 +76,59 @@ def train(hparams):
     data_module = WalkDataModule(hparams)
 
     # for the tensorboard
-    tb_logger = pl_loggers.TensorBoardLogger(save_dir=hparams.log_path, name=hparams.model, version=hparams.version)
+    tb_logger = pl_loggers.TensorBoardLogger(save_dir=os.path.join(hparams.log_path, hparams.model), name=hparams.log_version, version=hparams.fold)
 
     # some callbacks
     progress_bar = TQDMProgressBar(refresh_rate=100)
     rich_model_summary = RichModelSummary(max_depth=2)
-    rich_progress_bar = RichProgressBar(refresh_rate=hparams.batch_size)
 
     # define the checkpoint becavier.
     model_check_point = ModelCheckpoint(
-        filename='{epoch}-{val_loss:.2f}-{val_acc_rgb:.4f}-{val_acc_flow:.4f}',
+        filename='{epoch}-{val_loss:.2f}-{val_acc:.4f}',
         auto_insert_metric_name=True,
-        monitor="val_acc_rgb",
+        monitor="val_acc",
         mode="max",
         save_last=True,
-        save_top_k=5,
+        save_top_k=3,
 
+    )
+
+    # define the early stop.
+    early_stopping = EarlyStopping(
+        monitor='val_acc',
+        patience=5,
+        mode='max',
     )
 
     # bolts callbacks
     table_metrics_callback = PrintTableMetricsCallback()
     monitor = TrainingDataMonitor(log_every_n_steps=50)
 
-    trainer = Trainer(accelerator="auto",
-                      devices=1,
-                      gpus=hparams.gpu_num,
+    trainer = Trainer(
+                      devices=[hparams.gpu_num,],
+                      accelerator="gpu",
                       max_epochs=hparams.max_epochs,
                       logger=tb_logger,
                       #   log_every_n_steps=100,
                       check_val_every_n_epoch=1,
-                      callbacks=[progress_bar, rich_model_summary, table_metrics_callback, monitor, model_check_point],
+                      callbacks=[progress_bar, rich_model_summary, table_metrics_callback, monitor, model_check_point, early_stopping],
                       #   deterministic=True
                       )
 
     # from the params
     # trainer = Trainer.from_argparse_args(hparams)
 
-    if hparams.pretrained_model:
-        trainer.fit(classification_module, data_module, ckpt_path=get_ckpt_path)
-    else:
-        # training and val
-        trainer.fit(classification_module, data_module)
+    # training and val
+    trainer.fit(classification_module, data_module)
 
-    # testing
-    # trainer.test(dataloaders=data_module)
+    # trainer.logged_metrics
+    # trainer.callback_metrics
 
-    # predict
-    # trainer.predict(dataloaders=data_module)
+    Acc_list = trainer.validate(classification_module, data_module, ckpt_path='best')
 
+    # return the best acc score.
+    return model_check_point.best_model_score.item()
+ 
 
 # %%
 if __name__ == '__main__':
@@ -140,4 +136,50 @@ if __name__ == '__main__':
     # for test in jupyter
     config, unkonwn = get_parameters()
 
-    train(config)
+    #############
+    # K Fold CV
+    #############
+
+    print('*' * 50)
+    print('the pre precess flag is: %s' % str(config.pre_process_flag))
+    if config.pre_process_flag:
+        DATA_PATH = config.seg_data_path
+    else:
+        DATA_PATH = config.data_path
+
+    print('so the data path is: %s' % DATA_PATH)
+    print('*' * 50)
+
+    # get the fold number
+    fold_num = os.listdir(DATA_PATH)
+    fold_num.sort()
+    fold_num.remove('raw')
+
+    store_Acc_Dict = {}
+    sum_list = []
+
+    for fold in fold_num:
+        #################
+        # start k Fold CV
+        #################
+
+        print('#' * 50)
+        print('Strat %s' % fold)
+        print('#' * 50)
+
+        config.train_path = os.path.join(DATA_PATH, fold)
+        config.fold = fold
+
+        # connect the version + model + depth, for tensorboard logger.
+        config.log_version = config.version + '_' + config.model + '_depth' + str(config.model_depth)
+
+        Acc_score = train(config)
+
+        store_Acc_Dict[fold] = Acc_score
+        sum_list.append(Acc_score)
+
+    print('#' * 50)
+    print('different fold Acc:')
+    print(store_Acc_Dict)
+    print('Final avg Acc is: %s' % (sum(sum_list) / len(sum_list)))
+    

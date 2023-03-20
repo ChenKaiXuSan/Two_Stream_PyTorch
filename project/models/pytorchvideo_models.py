@@ -5,13 +5,17 @@ import torch.nn.functional as F
 
 from torchvision.io import write_video
 
-from models.make_model import MakeVideoModule
+from models.make_model import MakeVideoModule, MakeOriginalTwoStream
 from models.optical_flow import Optical_flow
-from models.instance_segmentation import batch_instance_segmentation
 
 from pytorch_lightning import LightningModule
 
-from utils.metrics import *
+from torchmetrics.functional.classification import \
+    binary_f1_score, \
+    binary_accuracy, \
+    binary_cohen_kappa, \
+    binary_auroc, \
+    binary_confusion_matrix
 
 # %%
 
@@ -25,28 +29,21 @@ class WalkVideoClassificationLightningModule(LightningModule):
         self.img_size = hparams.img_size
 
         self.lr = hparams.lr
-        self.num_class = hparams.model_class_num
 
         # model define
         self.optical_flow_model = Optical_flow()
-        self.instance_segmentation = batch_instance_segmentation()
-        self.model = MakeVideoModule(hparams)
 
-        # select the network structure
-        if self.model_type == 'resnet':
-            self.model_rgb = self.model.make_walk_resnet(3)
-            self.model_flow = self.model.make_walk_resnet(2)
-
-        elif self.model_type == 'csn':
-            self.model = self.model.make_walk_csn()
+        if self.model_type == 'multi':
+            self.model = MakeVideoModule(hparams)
+            self.model_rgb = self.model.make_walk_x3d(3)
+            self.model_flow = self.model.make_walk_x3d(2)
+        else:
+            self.model = MakeOriginalTwoStream(hparams)
+            self.model_rgb = self.model.make_resnet(3)
+            self.model_flow = self.model.make_resnet(2)
 
         # save the hyperparameters to the file and ckpt
         self.save_hyperparameters()
-
-        # select the metrics
-        self._accuracy = get_Accuracy(self.num_class)
-        self._precision = get_Precision(self.num_class)
-        self._confusion_matrix = get_Confusion_Matrix()
 
     def forward(self, x):
         return self.model(x)
@@ -66,40 +63,43 @@ class WalkVideoClassificationLightningModule(LightningModule):
         label = batch['label'].detach()  # b, c, t, h, w
         video = batch['video'].detach()  # b, c, t, h, w
 
-        self.model_rgb.train()
-        self.model_flow.train()
+        if self.model_type == 'multi':
+            pred_video_rgb, pred_video_rgb_sigmoid, pred_video_flow, pred_video_flow_sigmoid, loss = self.multi_logic(label, video)
+        else:
+            pred_video_rgb, pred_video_rgb_sigmoid, pred_video_flow, pred_video_flow_sigmoid, loss = self.multi_logic(label, video)
 
-        # add instance segmentation mask to raw video
-        masked_video = self.instance_segmentation.handle_batch_video(video) # b, c, t, h, w
+        accuracy_rgb = binary_accuracy(pred_video_rgb_sigmoid, label)
 
-        # pred the optical flow
-        video_flow = self.optical_flow_model.process_batch(masked_video)  # b, c, t, h, w
-        video_rgb = masked_video[:, :, :-1, :, :]  # dont use the last frame imge
+        # video rgb metrics
+        accuracy = binary_accuracy(pred_video_rgb_sigmoid, label)
+        f1_score = binary_f1_score(pred_video_rgb_sigmoid, label)
+        auroc = binary_auroc(pred_video_rgb_sigmoid, label)
+        cohen_kappa = binary_cohen_kappa(pred_video_rgb_sigmoid, label)
+        cm = binary_confusion_matrix(pred_video_rgb_sigmoid, label)
 
-        write_video('/workspace/Two_Stream_PyTorch/tests/test_flow.mp4', video_rgb[0].permute(1, 2, 3, 0).cpu(), fps=30)
-
-        # classification task
-        pred_video_rgb = self.model_rgb(video_rgb)
-        # pred_video_flow = self.model_flow(video_flow)
+        # log to tensorboard
+        self.log_dict({'train_loss': loss,
+                       'train_rgb_acc': accuracy,
+                       'train_rgb_f1_score': f1_score, 
+                       'train_rgb_auroc': auroc, 
+                       'train_rgb_cohen_kappa': cohen_kappa, 
+                       })
         
-        pred_video_rgb_sigmoid = torch.sigmoid(pred_video_rgb).squeeze(dim=-1)
-        # pred_video_flow_sigmoid = torch.sigmoid(pred_video_flow).squeeze(dim=-1)
+        # video optical metrics
+        accuracy = binary_accuracy(pred_video_flow_sigmoid, label)
+        f1_score = binary_f1_score(pred_video_flow_sigmoid, label)
+        auroc = binary_auroc(pred_video_flow_sigmoid, label)
+        cohen_kappa = binary_cohen_kappa(pred_video_flow_sigmoid, label)
+        cm = binary_confusion_matrix(pred_video_flow_sigmoid, label)
 
-        # squeeze(dim=-1) to keep the torch.Size([1]), not null.
-        loss_rgb = F.binary_cross_entropy_with_logits(pred_video_rgb.squeeze(dim=-1), label.float())
-        # loss_flow = F.binary_cross_entropy_with_logits(pred_video_flow.squeeze(dim=-1), label.float())
+        # log to tensorboard
+        self.log_dict({'train_loss': loss,
+                       'train_flow_acc': accuracy,
+                       'train_flow_f1_score': f1_score, 
+                       'train_flow_auroc': auroc, 
+                       'train_flow_cohen_kappa': cohen_kappa, 
+                       })
 
-        loss = loss_rgb #+ loss_flow
-
-        # soft_margin_loss = F.soft_margin_loss(pred_video_sigmoid, label.float())
-
-        accuracy_rgb = self._accuracy(pred_video_rgb_sigmoid, label)
-        # accuracy_flow = self._accuracy(pred_video_flow_sigmoid, label)
-
-        self.log('train_loss', loss)
-        self.log('train_acc', accuracy_rgb)
-
-        return loss
 
     # def training_epoch_end(self, outputs) -> None:
     #     '''
@@ -127,50 +127,43 @@ class WalkVideoClassificationLightningModule(LightningModule):
         '''
 
         # input and model define
-        label = batch['label'].detach()  # b, c, t, h, w
+        label = batch['label'].detach()  # b
         video = batch['video'].detach()  # b, c, t, h, w
 
-        self.model_rgb.eval()
-        self.model_flow.eval()
+        if self.model_type == 'multi':
+            pred_video_rgb, pred_video_rgb_sigmoid, pred_video_flow, pred_video_flow_sigmoid, loss = self.multi_logic(label, video)
+        else:
+            pred_video_rgb, pred_video_rgb_sigmoid, pred_video_flow, pred_video_flow_sigmoid, loss = self.single_logic(label, video)
 
-        # add instance segmentation mask to raw video
-        masked_video = self.instance_segmentation.handle_batch_video(video) # b, c, t, h, w
+        # video rgb metrics
+        accuracy = binary_accuracy(pred_video_rgb_sigmoid, label)
+        f1_score = binary_f1_score(pred_video_rgb_sigmoid, label)
+        auroc = binary_auroc(pred_video_rgb_sigmoid, label)
+        cohen_kappa = binary_cohen_kappa(pred_video_rgb_sigmoid, label)
+        cm = binary_confusion_matrix(pred_video_rgb_sigmoid, label)
+
+        # log to tensorboard
+        self.log_dict({'val_loss': loss,
+                       'val_rgb_acc': accuracy,
+                       'val_rgb_f1_score': f1_score, 
+                       'val_rgb_auroc': auroc, 
+                       'val_rgb_cohen_kappa': cohen_kappa, 
+                       })
         
-        # pred the optical flow base RAFT
-        # video_flow = self.optical_flow_model.process_batch(masked_video)  # b, c, t, h, w
-        video_rgb = masked_video[:, :, :-1, :, :]  # dont use the last frame imge
+        # video optical metrics
+        accuracy = binary_accuracy(pred_video_flow_sigmoid, label)
+        f1_score = binary_f1_score(pred_video_flow_sigmoid, label)
+        auroc = binary_auroc(pred_video_flow_sigmoid, label)
+        cohen_kappa = binary_cohen_kappa(pred_video_flow_sigmoid, label)
+        cm = binary_confusion_matrix(pred_video_flow_sigmoid, label)
 
-        # classification task
-        with torch.no_grad():
-            pred_video_rgb = self.model_rgb(video_rgb)
-            # pred_video_flow = self.model_flow(video_flow)
-
-        pred_video_rgb_sigmoid = torch.sigmoid(pred_video_rgb).squeeze(dim=-1)
-        # pred_video_flow_sigmoid = torch.sigmoid(pred_video_flow).squeeze(dim=-1)
-
-        # squeeze(dim=-1) to keep the torch.Size([1]), not null.
-        loss_rgb = F.binary_cross_entropy_with_logits(pred_video_rgb.squeeze(dim=-1), label.float())
-        # loss_flow = F.binary_cross_entropy_with_logits(pred_video_flow.squeeze(dim=-1), label.float())
-
-        loss = loss_rgb #+ loss_flow
-
-        # soft_margin_loss = F.soft_margin_loss(pred_video_sigmoid, label.float())
-
-        # calc the metric, function from torchmetrics
-        accuracy_rgb = self._accuracy(pred_video_rgb_sigmoid, label)
-        # accuracy_flow = self._accuracy(pred_video_flow_sigmoid, label)
-
-        precision_rgb = self._precision(pred_video_rgb_sigmoid, label)
-        # precision_flow = self._precision(pred_video_flow_sigmoid, label)
-
-        confusion_matrix = self._confusion_matrix(pred_video_rgb_sigmoid, label)
-
-        # log the val loss and val acc, in step and in epoch.
-        self.log_dict({'val_loss': loss, 'val_acc_rgb': accuracy_rgb, 'val_precision_rgb': precision_rgb,
-                       #'val_acc_flow': accuracy_flow, 'val_precision_flow': precision_flow
-                       }, on_step=False, on_epoch=True)
-
-        return accuracy_rgb
+        # log to tensorboard
+        self.log_dict({'val_loss': loss,
+                       'val_flow_acc': accuracy,
+                       'val_flow_f1_score': f1_score, 
+                       'val_flow_auroc': auroc, 
+                       'val_flow_cohen_kappa': cohen_kappa, 
+                       })
 
     # def validation_epoch_end(self, outputs):
 
@@ -190,54 +183,9 @@ class WalkVideoClassificationLightningModule(LightningModule):
             batch (3D tensor): b, c, t, h, w
             batch_idx (_type_): _description_
         '''
-
-        # input and model define
-        label = batch['label'].detach()  # b
-        video = batch['video'].detach()  # b, c, t, h, w
-
-        self.model_rgb.eval()
-        self.model_flow.eval()
-
-        # pred the optical flow base RAFT
-        video_flow = self.optical_flow_model.process_batch(video)  # b, c, t, h, w
-        video_rgb = video[:, :, :-1, :, :]  # dont use the last frame image (b, c, t, h, w)
-
-        # eval model, feed data here
-        with torch.no_grad():
-            pred_video_rgb = self.model_rgb(video_rgb)
-            pred_video_flow = self.model_flow(video_flow)
-
-        pred_video_rgb_sigmoid = torch.sigmoid(pred_video_rgb).squeeze(dim=-1)
-        pred_video_flow_sigmoid = torch.sigmoid(pred_video_flow).squeeze(dim=-1)
-
-        # squeeze(dim=-1) to keep the torch.Size([1]), not null.
-        loss_rgb = F.binary_cross_entropy_with_logits(pred_video_rgb.squeeze(dim=-1), label.float())
-        loss_flow = F.binary_cross_entropy_with_logits(pred_video_flow.squeeze(dim=-1), label.float())
-
-        loss = loss_rgb + loss_flow
-
-        # calc the metric, function from torchmetrics
-        accuracy_rgb = self._accuracy(pred_video_rgb_sigmoid, label)
-        accuracy_flow = self._accuracy(pred_video_flow_sigmoid, label)
-
-        precision_rgb = self._precision(pred_video_rgb_sigmoid, label)
-        precision_flow = self._precision(pred_video_flow_sigmoid, label)
-
-        confusion_matrix = self._confusion_matrix(pred_video_rgb_sigmoid, label)
-
-        # log the test loss, and test acc, in step and in epoch
-        self.log_dict({'test_loss': loss, 'test_acc_rgb': accuracy_rgb, 'test_acc_flow': accuracy_flow,
-                      'test_precision_rgb': precision_rgb, 'test_precision_flow': precision_flow}, on_step=False, on_epoch=True)
-
-        return accuracy_rgb, accuracy_flow
+        pass
 
     def test_epoch_end(self, outputs):
-
-        # test_metric = torch.stack(outputs, dim=0)
-
-        # final_acc = torch.sum(test_metric) / len(test_metric)
-
-        # print(final_acc)
         pass
 
     def configure_optimizers(self):
@@ -262,3 +210,33 @@ class WalkVideoClassificationLightningModule(LightningModule):
 
     def _get_name(self):
         return self.model_type
+
+    def single_logic(self, label, video):
+        pass
+
+    def multi_logic(self, label, video):
+
+        # pred the optical flow base RAFT
+        last_frame = video[:, :, -1, :].unsqueeze(dim=2) # b, c, 1, h, w
+        OF_video = torch.cat([video, last_frame], dim=2)
+        video_flow = self.optical_flow_model.process_batch(OF_video)  # b, c, t, h, w
+
+        # eval model, feed data here
+        if self.training:
+            pred_video_rgb = self.model_rgb(video)
+            pred_video_flow = self.model_flow(video_flow)
+        else:
+            with torch.no_grad():
+                pred_video_rgb = self.model_rgb(video)
+                pred_video_flow = self.model_flow(video_flow)
+
+        pred_video_rgb_sigmoid = torch.sigmoid(pred_video_rgb).squeeze(dim=-1)
+        pred_video_flow_sigmoid = torch.sigmoid(pred_video_flow).squeeze(dim=-1)
+
+        # squeeze(dim=-1) to keep the torch.Size([1]), not null.
+        loss_rgb = F.binary_cross_entropy_with_logits(pred_video_rgb.squeeze(dim=-1), label.float())
+        loss_flow = F.binary_cross_entropy_with_logits(pred_video_flow.squeeze(dim=-1), label.float())
+
+        loss = loss_rgb + loss_flow
+
+        return pred_video_rgb, pred_video_rgb_sigmoid, pred_video_flow, pred_video_flow_sigmoid, loss
