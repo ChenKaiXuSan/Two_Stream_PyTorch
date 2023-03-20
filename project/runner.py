@@ -7,10 +7,10 @@ import time
 import subprocess
 from argparse import ArgumentParser
 
-VIDEO_LENGTH = ['1']
-VIDEO_FRAME = ['8', '16', '32']
+VIDEO_LENGTH = ['1', '2']
+VIDEO_FRAME = ['16']
 
-MAIN_FILE_PATH = '/workspace/Walk_Video_PyTorch/project/main.py'
+MAIN_FILE_PATH = '/workspace/Two_Stream_PyTorch/project/main.py'
 
 def get_parameters():
     '''
@@ -20,7 +20,6 @@ def get_parameters():
 
     # model hyper-parameters
     parser.add_argument('--model', type=str, default='resnet', choices=['resnet', 'csn', 'r2plus1d', 'x3d', 'slowfast', 'c2d', 'i3d'])
-    parser.add_argument('--model_depth', type=int, default=50, choices=[50, 101, 152], help='the depth of used model')
 
     # Training setting
     parser.add_argument('--gpu_num', type=int, default=0, choices=[0, 1], help='the gpu number whicht to train')
@@ -45,8 +44,6 @@ if __name__ == '__main__':
     pre_process_flag = config.pre_process_flag
     model = config.model
 
-
-
     symbol = '_'
 
     for length in VIDEO_LENGTH:
@@ -59,7 +56,7 @@ if __name__ == '__main__':
                 if not pre_process_flag:
 
                     version = symbol.join([data, length, frames, 'not_pre_process'])
-                    log_path = '/workspace/Walk_Video_PyTorch/logs/' + symbol.join([version, model]) + '.log'
+                    log_path = '/workspace/Two_Stream_PyTorch/logs' + symbol.join([version, model]) + '.log'
 
                     with open(log_path, 'w') as f:
 
@@ -77,7 +74,7 @@ if __name__ == '__main__':
                 else:
 
                     version = symbol.join([data, length, frames])
-                    log_path = '/workspace/Walk_Video_PyTorch/logs/' + symbol.join([version, model]) + '.log'
+                    log_path = '/workspace/Two_Stream_PyTorch/logs' + symbol.join([version, model]) + '.log'
 
                     with open(log_path, 'w') as f:
 
@@ -95,7 +92,7 @@ if __name__ == '__main__':
             else:
 
                 version = symbol.join([data, length, frames, 'not_transfor_learning'])
-                log_path = '/workspace/Walk_Video_PyTorch/logs/' + symbol.join([version, model]) + '.log'
+                log_path = '/workspace/Two_Stream_PyTorch/logs' + symbol.join([version, model]) + '.log'
 
                 with open(log_path, 'w') as f:
 
