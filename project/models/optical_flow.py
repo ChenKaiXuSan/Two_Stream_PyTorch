@@ -16,7 +16,6 @@ class Optical_flow(nn.Module):
         #define the network 
         self.model = raft_large(weights=self.weights, progress=False).eval()
         
-
     def get_Optical_flow(self, frame_batch):
         '''
         catch one by one batch optical flow, use RAFT method.
@@ -39,6 +38,8 @@ class Optical_flow(nn.Module):
         current_frame_batch, next_frame_batch = self.transforms(current_frame, next_frame)
 
         # start predict 
+        self.model.eval()
+
         with torch.no_grad():
             pred_flows = self.model(current_frame_batch, next_frame_batch)[-1]
 

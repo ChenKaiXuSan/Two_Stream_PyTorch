@@ -99,7 +99,8 @@ class WalkVideoClassificationLightningModule(LightningModule):
                        'train_flow_auroc': auroc, 
                        'train_flow_cohen_kappa': cohen_kappa, 
                        })
-
+        
+        return loss
 
     # def training_epoch_end(self, outputs) -> None:
     #     '''
@@ -224,9 +225,9 @@ class WalkVideoClassificationLightningModule(LightningModule):
         single_img = video.view(-1, 3, h, w)
         single_flow = video_flow.contiguous().view(-1, 2, h, w)
 
-        # for i in range(video.size()[0]):
-        #     save_image(single_input[i] * 255, fp='/workspace/test/rgb_%i.jpg' % i)
-        #     save_image(flow_to_image(single_flow[i].float()), fp='/workspace/test/flow_%i.jpg' % i)
+        # for i in range(single_img.size()[0]):
+        #     save_image(single_img[i], fp='/workspace/test/rgb_%i.jpg' % i)
+        #     save_image(flow_to_image(single_flow[i]).float() / 255, fp='/workspace/test/flow_%i.jpg' % i)
 
         # eval model, feed data here
         if self.training:
@@ -248,12 +249,18 @@ class WalkVideoClassificationLightningModule(LightningModule):
 
         return pred_video_rgb, pred_video_rgb_sigmoid, pred_video_flow, pred_video_flow_sigmoid, loss
 
-    def multi_logic(self, label, video):
+    def multi_logic(self, label: torch.Tensor, video: torch.Tensor):
 
         # pred the optical flow base RAFT
         last_frame = video[:, :, -1, :].unsqueeze(dim=2) # b, c, 1, h, w
         OF_video = torch.cat([video, last_frame], dim=2)
-        video_flow = self.optical_flow_model.process_batch(OF_video)  # b, c, t, h, w
+        video_flow = self.optical_flow_model.process_batch(OF_video) # b, c, t, h, w
+
+        # for b in range(video.size()[0]):
+
+        #     for t in range(video.size()[2]):
+        #         save_image(video[b,:,t,:], fp='/workspace/test/rgb_%s_%s.jpg' % (b, t))
+        #         save_image(flow_to_image(video_flow[b,:,t,:]).float() / 255, fp='/workspace/test/flow_%s_%s.jpg' % (b, t))
 
         # eval model, feed data here
         if self.training:
