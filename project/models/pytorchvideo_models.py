@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torchvision.io import write_video
+from torchvision.utils import save_image, flow_to_image
 
 from models.make_model import MakeVideoModule, MakeOriginalTwoStream
 from models.optical_flow import Optical_flow
@@ -66,9 +67,8 @@ class WalkVideoClassificationLightningModule(LightningModule):
         if self.model_type == 'multi':
             pred_video_rgb, pred_video_rgb_sigmoid, pred_video_flow, pred_video_flow_sigmoid, loss = self.multi_logic(label, video)
         else:
-            pred_video_rgb, pred_video_rgb_sigmoid, pred_video_flow, pred_video_flow_sigmoid, loss = self.multi_logic(label, video)
-
-        accuracy_rgb = binary_accuracy(pred_video_rgb_sigmoid, label)
+            label = label.repeat_interleave(video.size()[2])
+            pred_video_rgb, pred_video_rgb_sigmoid, pred_video_flow, pred_video_flow_sigmoid, loss = self.single_logic(label, video)
 
         # video rgb metrics
         accuracy = binary_accuracy(pred_video_rgb_sigmoid, label)
@@ -127,12 +127,13 @@ class WalkVideoClassificationLightningModule(LightningModule):
         '''
 
         # input and model define
-        label = batch['label'].detach()  # b
         video = batch['video'].detach()  # b, c, t, h, w
+        label = batch['label'].detach()  # b
 
         if self.model_type == 'multi':
             pred_video_rgb, pred_video_rgb_sigmoid, pred_video_flow, pred_video_flow_sigmoid, loss = self.multi_logic(label, video)
         else:
+            label = label.repeat_interleave(video.size()[2])
             pred_video_rgb, pred_video_rgb_sigmoid, pred_video_flow, pred_video_flow_sigmoid, loss = self.single_logic(label, video)
 
         # video rgb metrics
@@ -211,8 +212,41 @@ class WalkVideoClassificationLightningModule(LightningModule):
     def _get_name(self):
         return self.model_type
 
-    def single_logic(self, label, video):
-        pass
+    def single_logic(self, label: torch.Tensor, video: torch.Tensor):
+
+        # pred the optical flow base RAFT
+        last_frame = video[:, :, -1, :].unsqueeze(dim=2) # b, c, 1, h, w
+        OF_video = torch.cat([video, last_frame], dim=2)
+        video_flow = self.optical_flow_model.process_batch(OF_video)  # b, c, t, h, w
+
+        b, c, t, h, w = video.shape
+
+        single_img = video.view(-1, 3, h, w)
+        single_flow = video_flow.contiguous().view(-1, 2, h, w)
+
+        # for i in range(video.size()[0]):
+        #     save_image(single_input[i] * 255, fp='/workspace/test/rgb_%i.jpg' % i)
+        #     save_image(flow_to_image(single_flow[i].float()), fp='/workspace/test/flow_%i.jpg' % i)
+
+        # eval model, feed data here
+        if self.training:
+            pred_video_rgb = self.model_rgb(single_img)
+            pred_video_flow = self.model_flow(single_flow)
+        else:
+            with torch.no_grad():
+                pred_video_rgb = self.model_rgb(single_img)
+                pred_video_flow = self.model_flow(single_flow)
+
+        pred_video_rgb_sigmoid = torch.sigmoid(pred_video_rgb).squeeze(dim=-1)
+        pred_video_flow_sigmoid = torch.sigmoid(pred_video_flow).squeeze(dim=-1)
+
+        # squeeze(dim=-1) to keep the torch.Size([1]), not null.
+        loss_rgb = F.binary_cross_entropy_with_logits(pred_video_rgb.squeeze(dim=-1), label.float())
+        loss_flow = F.binary_cross_entropy_with_logits(pred_video_flow.squeeze(dim=-1), label.float())
+
+        loss = loss_rgb + loss_flow
+
+        return pred_video_rgb, pred_video_rgb_sigmoid, pred_video_flow, pred_video_flow_sigmoid, loss
 
     def multi_logic(self, label, video):
 

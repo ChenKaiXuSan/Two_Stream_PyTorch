@@ -88,9 +88,12 @@ class MakeOriginalTwoStream(nn.Module):
         self.transfor_learning = hparams.transfor_learning
 
     def make_resnet(self, input_channel:int = 3):
+
+        model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet50', pretrained=True)
+
         # from pytorchvision, use resnet 50.
-        weights = ResNet50_Weights.DEFAULT
-        model = resnet50(weights=weights)
+        # weights = ResNet50_Weights.DEFAULT
+        # model = resnet50(weights=weights)
 
         # for the folw model and rgb model 
         model.conv1 = nn.Conv2d(input_channel, 64, kernel_size=7, stride=2, padding=3, bias=False)

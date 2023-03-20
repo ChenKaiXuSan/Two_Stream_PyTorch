@@ -44,6 +44,10 @@ if __name__ == '__main__':
     pre_process_flag = config.pre_process_flag
     model = config.model
 
+    if model == 'single':
+        VIDEO_LENGTH = ['1']
+        VIDEO_FRAME = ['30']
+
     symbol = '_'
 
     for length in VIDEO_LENGTH:
