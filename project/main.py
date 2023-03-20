@@ -86,7 +86,7 @@ def train(hparams):
     model_check_point = ModelCheckpoint(
         filename='{epoch}-{val_loss:.2f}-{val_acc:.4f}',
         auto_insert_metric_name=True,
-        monitor="val_acc",
+        monitor="val_rgb_acc",
         mode="max",
         save_last=True,
         save_top_k=3,
@@ -95,7 +95,7 @@ def train(hparams):
 
     # define the early stop.
     early_stopping = EarlyStopping(
-        monitor='val_acc',
+        monitor='val_rgb_acc',
         patience=5,
         mode='max',
     )
