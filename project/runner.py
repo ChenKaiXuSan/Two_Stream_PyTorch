@@ -56,7 +56,7 @@ if __name__ == '__main__':
                 if not pre_process_flag:
 
                     version = symbol.join([data, length, frames, 'not_pre_process'])
-                    log_path = '/workspace/Two_Stream_PyTorch/logs' + symbol.join([version, model]) + '.log'
+                    log_path = '/workspace/Two_Stream_PyTorch/logs/' + symbol.join([version, model]) + '.log'
 
                     with open(log_path, 'w') as f:
 
@@ -74,7 +74,7 @@ if __name__ == '__main__':
                 else:
 
                     version = symbol.join([data, length, frames])
-                    log_path = '/workspace/Two_Stream_PyTorch/logs' + symbol.join([version, model]) + '.log'
+                    log_path = '/workspace/Two_Stream_PyTorch/logs/' + symbol.join([version, model]) + '.log'
 
                     with open(log_path, 'w') as f:
 
@@ -92,7 +92,7 @@ if __name__ == '__main__':
             else:
 
                 version = symbol.join([data, length, frames, 'not_transfor_learning'])
-                log_path = '/workspace/Two_Stream_PyTorch/logs' + symbol.join([version, model]) + '.log'
+                log_path = '/workspace/Two_Stream_PyTorch/logs/' + symbol.join([version, model]) + '.log'
 
                 with open(log_path, 'w') as f:
 
