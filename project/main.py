@@ -18,7 +18,6 @@ from argparse import ArgumentParser
 import pytorch_lightning
 # %%
 
-
 def get_parameters():
     '''
     The parameters for the model training, can be called out via the --h menu
@@ -27,6 +26,7 @@ def get_parameters():
 
     # model hyper-parameters
     parser.add_argument('--model', type=str, default='multi', choices=['multi', 'single'])
+    parser.add_argument('--fusion', type=str, default='sum_loss', choices=['different_loss', 'sum_loss', 'concat'])
     parser.add_argument('--img_size', type=int, default=224)
     parser.add_argument('--version', type=str, default='test', help='the version of logger, such data')
     parser.add_argument('--model_class_num', type=int, default=1, help='the class num of model')

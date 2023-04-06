@@ -7,8 +7,8 @@ import time
 import subprocess
 from argparse import ArgumentParser
 
-VIDEO_LENGTH = ['1', '2']
-VIDEO_FRAME = ['16']
+VIDEO_LENGTH = ['1']
+VIDEO_FRAME = ['17']
 
 MAIN_FILE_PATH = '/workspace/Two_Stream_PyTorch/project/main.py'
 
@@ -20,6 +20,7 @@ def get_parameters():
 
     # model hyper-parameters
     parser.add_argument('--model', type=str, default='multi', choices=['multi', 'single'])
+    parser.add_argument('--fusion', type=str, default='sum_loss', choices=['different_loss', 'sum_loss', 'concat'])
 
     # Training setting
     parser.add_argument('--gpu_num', type=int, default=0, choices=[0, 1], help='the gpu number whicht to train')
@@ -43,10 +44,11 @@ if __name__ == '__main__':
     transfor_learning = config.transfor_learning
     pre_process_flag = config.pre_process_flag
     model = config.model
+    fusion = config.fusion
 
     if model == 'single':
         VIDEO_LENGTH = ['1']
-        VIDEO_FRAME = ['30']
+        VIDEO_FRAME = ['31']
 
     symbol = '_'
 
@@ -60,7 +62,7 @@ if __name__ == '__main__':
                 if not pre_process_flag:
 
                     version = symbol.join([data, length, frames, 'not_pre_process'])
-                    log_path = '/workspace/Two_Stream_PyTorch/logs/' + symbol.join([version, model]) + '.log'
+                    log_path = '/workspace/Two_Stream_PyTorch/logs/' + symbol.join([version, model, fusion]) + '.log'
 
                     with open(log_path, 'w') as f:
 
@@ -68,6 +70,7 @@ if __name__ == '__main__':
                         subprocess.run(['python', MAIN_FILE_PATH,
                                         '--version', version,
                                         '--model', model,
+                                        '--fusion', fusion,
                                         '--clip_duration', length,
                                         '--uniform_temporal_subsample_num', frames,
                                         '--gpu_num', str(config.gpu_num),
@@ -78,7 +81,7 @@ if __name__ == '__main__':
                 else:
 
                     version = symbol.join([data, length, frames])
-                    log_path = '/workspace/Two_Stream_PyTorch/logs/' + symbol.join([version, model]) + '.log'
+                    log_path = '/workspace/Two_Stream_PyTorch/logs/' + symbol.join([version, model, fusion]) + '.log'
 
                     with open(log_path, 'w') as f:
 
@@ -86,6 +89,7 @@ if __name__ == '__main__':
                         subprocess.run(['python', MAIN_FILE_PATH,
                                         '--version', version,
                                         '--model', model,
+                                        '--fusion', fusion,
                                         '--clip_duration', length,
                                         '--uniform_temporal_subsample_num', frames,
                                         '--gpu_num', str(config.gpu_num),
@@ -96,7 +100,7 @@ if __name__ == '__main__':
             else:
 
                 version = symbol.join([data, length, frames, 'not_transfor_learning'])
-                log_path = '/workspace/Two_Stream_PyTorch/logs/' + symbol.join([version, model]) + '.log'
+                log_path = '/workspace/Two_Stream_PyTorch/logs/' + symbol.join([version, model, fusion]) + '.log'
 
                 with open(log_path, 'w') as f:
 
@@ -104,6 +108,7 @@ if __name__ == '__main__':
                     subprocess.run(['python', MAIN_FILE_PATH,
                                     '--version', version,
                                     '--model', model,
+                                    '--fusion', fusion,
                                     '--clip_duration', length,
                                     '--uniform_temporal_subsample_num', frames,
                                     '--gpu_num', str(config.gpu_num),
