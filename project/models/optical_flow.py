@@ -14,7 +14,7 @@ class Optical_flow(nn.Module):
         self.transforms = self.weights.transforms()
 
         #define the network 
-        self.model = raft_large(weights=self.weights, progress=False).eval()
+        self.model = raft_large(weights=self.weights, progress=False).cuda()
         
     def get_Optical_flow(self, frame_batch):
         '''

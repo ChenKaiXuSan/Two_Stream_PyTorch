@@ -26,7 +26,7 @@ def get_parameters():
 
     # model hyper-parameters
     parser.add_argument('--model', type=str, default='multi', choices=['multi', 'single'])
-    parser.add_argument('--fusion', type=str, default='sum_loss', choices=['different_loss', 'sum_loss', 'concat'])
+    parser.add_argument('--fusion', type=str, default='different_loss', choices=['different_loss', 'sum_loss', 'concat'])
     parser.add_argument('--img_size', type=int, default=224)
     parser.add_argument('--version', type=str, default='test', help='the version of logger, such data')
     parser.add_argument('--model_class_num', type=int, default=1, help='the class num of model')
@@ -39,7 +39,7 @@ def get_parameters():
     parser.add_argument('--clip_duration', type=int, default=1, help='clip duration for the video')
     parser.add_argument('--uniform_temporal_subsample_num', type=int,
                         default=8, help='num frame from the clip duration')
-    parser.add_argument('--gpu_num', type=int, default=0, choices=[0, 1], help='the gpu number whicht to train')
+    parser.add_argument('--gpu_num', type=int, default=0, choices=[0, 1], help='the gpu number which to train')
 
     # Transfor_learning
     parser.add_argument('--transfor_learning', action='store_true', help='if use the transformer learning')
@@ -171,7 +171,7 @@ if __name__ == '__main__':
         config.fold = fold
 
         # connect the version + model + depth, for tensorboard logger.
-        config.log_version = config.version + '_' + config.model + '_depth' + str(config.model_depth)
+        config.log_version = config.version + '_' + config.model + '_' + config.fusion
 
         Acc_score = train(config)
 
