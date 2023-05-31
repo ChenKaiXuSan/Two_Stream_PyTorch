@@ -25,7 +25,7 @@ def get_parameters():
     parser = ArgumentParser()
 
     # model hyper-parameters
-    parser.add_argument('--model', type=str, default='multi', choices=['multi', 'single'])
+    parser.add_argument('--model', type=str, default='multi', choices=['multi', 'single', 'multi_single'])
     parser.add_argument('--fusion', type=str, default='different_loss', choices=['different_loss', 'sum_loss', 'concat'])
     parser.add_argument('--img_size', type=int, default=224)
     parser.add_argument('--version', type=str, default='test', help='the version of logger, such data')
@@ -34,7 +34,7 @@ def get_parameters():
 
     # Training setting
     parser.add_argument('--max_epochs', type=int, default=50, help='numer of epochs of training')
-    parser.add_argument('--batch_size', type=int, default=4, help='batch size for the dataloader')
+    parser.add_argument('--batch_size', type=int, default=3, help='batch size for the dataloader')
     parser.add_argument('--num_workers', type=int, default=4, help='dataloader for load video')
     parser.add_argument('--clip_duration', type=int, default=1, help='clip duration for the video')
     parser.add_argument('--uniform_temporal_subsample_num', type=int,
@@ -53,6 +53,8 @@ def get_parameters():
 
     # Path
     parser.add_argument('--data_path', type=str, default="/workspace/data/dataset/", help='meta dataset path')
+    parser.add_argument('--split_pad_data_path', type=str, default="/workspace/data/split_pad_dataset_512/",
+                        help="split and pad dataset with detection method.")
     parser.add_argument('--seg_data_path', type=str, default="/workspace/data/segmentation_dataset_512",
                         help="segmentation dataset with mediapipe, with 5 fold cross validation.")
 
@@ -143,7 +145,8 @@ if __name__ == '__main__':
     print('*' * 50)
     print('the pre precess flag is: %s' % str(config.pre_process_flag))
     if config.pre_process_flag:
-        DATA_PATH = config.seg_data_path
+        # DATA_PATH = config.seg_data_path
+        DATA_PATH = config.split_pad_data_path
     else:
         DATA_PATH = config.data_path
 

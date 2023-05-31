@@ -8,6 +8,7 @@ sys.path.append('/workspace/Two_Stream_PyTorch/project')
 
 from models.pytorchvideo_models import WalkVideoClassificationLightningModule
 from dataloader.data_loader import WalkDataModule
+from pytorchvideo.transforms.functional import uniform_temporal_subsample
 
 from IPython.display import clear_output
 
@@ -37,12 +38,11 @@ _aucroc = torchmetrics.classification.BinaryAUROC()
 # %%
 class opt:
     num_workers = 8
-    batch_size = 16
-    gpu_num = 1
+    batch_size = 4
 
     model = "multi"
     model_type = "multi"
-    fusion = "sum_loss"
+    fusion = "sum"
 
     img_size = 224
     lr=0.0001
@@ -54,19 +54,21 @@ class opt:
 
     data_path = "/workspace/data/dataset/"
 
-DATA_PATH = "/workspace/data/segmentation_dataset_512"
+# DATA_PATH = "/workspace/data/segmentation_dataset_512"
+DATA_PATH = "/workspace/data/split_pad_dataset_512"
 
 # %%
 def get_best_ckpt(length: str, frame: str, fold: str):
 
     ckpt_path = '/workspace/Two_Stream_PyTorch/logs/multi/'
+    version = '518_1_17_multi_sum_loss'
     ckpt_path_list = os.listdir(ckpt_path)
     ckpt_path_list.sort()
 
     final_ckpt_list = [] 
 
     for i in ckpt_path_list:
-        if len(i) < 25:
+        if version in i:
             final_ckpt_list.append(i)
 
     final_ckpt_list.sort()
@@ -126,6 +128,25 @@ def multi_logic(label: torch.Tensor, video: torch.Tensor, model):
         pred_video_flow = model.model_flow(video_flow)
 
     return pred_video_rgb, pred_video_flow
+
+def multi_single_logic(label: torch.Tensor, video: torch.Tensor, model):
+        
+    single_label = label.repeat_interleave(video.size()[2] - 1)
+
+    # pred the optical flow base RAFT
+    video_flow = optical_flow_model.process_batch(video) # b, c, t, h, w
+    # extract 16 for 3D CNN
+    video = uniform_temporal_subsample(video[:, :, :-1, :].cpu(), 16).cuda()
+
+    b, c, t, h, w = video.shape
+
+    single_flow = video_flow.contiguous().view(-1, 2, h, w)
+
+    with torch.no_grad():
+        pred_video_rgb = model.model_rgb(video)
+        pred_video_flow = model.model_flow(single_flow)
+
+    return pred_video_rgb, pred_video_flow
 # %%
 def get_inference(test_data, model):
         
@@ -143,10 +164,12 @@ def get_inference(test_data, model):
 
         if opt.model == 'multi':
             pred_rgb, pred_flow = multi_logic(label, video, model)
-        else:
+        elif opt.model == 'single':
             # not use the last frame
             label = label.repeat_interleave(video.size()[2] - 1).cuda()
             pred_rgb, pred_flow = single_logic(label, video, model)
+        elif opt.model == 'multi_single':
+            pred_rgb, pred_flow = multi_single_logic(label, video, model)
 
         # when torch.size([1]), not squeeze.
         if pred_rgb.size()[0] != 1 or len(pred_rgb.size()) != 1 :
@@ -163,21 +186,21 @@ def get_inference(test_data, model):
         pred_flow_list.append(preds_flow_sigmoid.tolist())
         label_list.append(label.tolist())
 
-        total_pred_rgb_list = []
-        total_pred_flow_list = []
-        total_label_list = []
+    total_pred_rgb_list = []
+    total_pred_flow_list = []
+    total_label_list = []
 
-        for i in pred_rgb_list:
-            for number in i:
-                total_pred_rgb_list.append(number)
+    for i in pred_rgb_list:
+        for number in i:
+            total_pred_rgb_list.append(number)
 
-        for i in pred_flow_list:
-            for number in i:
-                total_pred_flow_list.append(number)
+    for i in pred_flow_list:
+        for number in i:
+            total_pred_flow_list.append(number)
 
-        for i in label_list:
-            for number in i: 
-                total_label_list.append(number)
+    for i in label_list:
+        for number in i: 
+            total_label_list.append(number)
 
     return total_pred_rgb_list, total_pred_flow_list, total_label_list
 
@@ -267,6 +290,9 @@ for length in VIDEO_LENGTH:
         print('_confusion_matrix: %s' % _confusion_matrix(pred_rgb, label))
         print('#' * 50)
 
+        if opt.model == 'multi_single':
+            label = label.repeat_interleave(30)
+
         # video optical metrics
         print('the result of %ss %sframe:' % (length, frame))
         print('accuracy: %s' % _accuracy(pred_flow, label))
@@ -278,52 +304,139 @@ for length in VIDEO_LENGTH:
         print('#' * 50)
 
 # %%
+# sum the two pred to predict the final metrics
+total_preds = (pred_rgb + pred_flow) /2
+
+print('*' * 100)
+
+# video rgb metrics
+print('the result of %ss %sframe:' % (length, frame))
+print('accuracy: %s' % _accuracy(total_preds, label))
+print('precision: %s' % _precision(total_preds, label))
+print('_binary_recall: %s' % _binary_recall(total_preds, label))
+print('_binary_f1: %s' % _binary_f1(total_preds, label))
+print('_aurroc: %s' % _aucroc(total_preds, label))
+print('_confusion_matrix: %s' % _confusion_matrix(total_preds, label))
+print('#' * 50)
+# %%
+# reduce_pred_flow = []
+# a, b = 0, 30
+# for i in range(pred_flow.size()[0]//30):
+#     reduce_pred_flow.append(sum(pred_flow[a:b])/30)
+#     a += 30
+#     b += 30
+
+# reduce_pred_flow = torch.sigmoid(torch.tensor(reduce_pred_flow))
+
+# # %%
+# reduce_label = []
+# a, b = 0, 30
+# for i in range(label.size()[0]//30):
+#     reduce_label.append(sum(label[a:b])/30)
+#     a +=30
+#     b += 30
+# reduce_label = torch.tensor(reduce_label)
+
+# # %%
+# # sum the two pred to predict the final metrics
+# total_preds = (reduce_pred_flow + pred_rgb) /2
+
+# print('*' * 100)
+
+# # video rgb metrics
+# print('the result of %ss %sframe:' % (length, frame))
+# print('accuracy: %s' % _accuracy(total_preds, reduce_label))
+# print('precision: %s' % _precision(total_preds, reduce_label))
+# print('_binary_recall: %s' % _binary_recall(total_preds, reduce_label))
+# print('_binary_f1: %s' % _binary_f1(total_preds, reduce_label))
+# print('_aurroc: %s' % _aucroc(total_preds, reduce_label))
+# print('_confusion_matrix: %s' % _confusion_matrix(total_preds, reduce_label))
+# print('#' * 50)
+# %%
+# sum the two pred to predict the final metrics
+x = pred_rgb.repeat_interleave(30)
+total_preds = (x + pred_flow) /2
+
+print('*' * 100)
+
+# video rgb metrics
+print('the result of %ss %sframe:' % (length, frame))
+print('accuracy: %s' % _accuracy(total_preds, label))
+print('precision: %s' % _precision(total_preds, label))
+print('_binary_recall: %s' % _binary_recall(total_preds, label))
+print('_binary_f1: %s' % _binary_f1(total_preds, label))
+print('_aurroc: %s' % _aucroc(total_preds, label))
+print('_confusion_matrix: %s' % _confusion_matrix(total_preds, label))
+print('#' * 50)
+
+# %%
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-cm = _confusion_matrix(pred_rgb, label)
+cm = _confusion_matrix(total_preds, label).to(float)
 
-ax = sns.heatmap(cm, annot=True, fmt="3d")
+total = sum(sum(cm))
 
-ax.set_title('confusion matrix')
+for i in range(cm.shape[0]):
+    for j in range(cm.shape[1]):
+        cm[i][j] = float(cm[i][j] / total)
+
+ax = sns.heatmap(cm, annot=True, fmt=".2f", xticklabels=['ASD', 'non_ASD'], yticklabels=['ASD', 'non_ASD'])
+
+ax.set_title('Confusion Matrix')
 ax.set(xlabel="pred class", ylabel="ground truth")
 ax.xaxis.tick_top()
 plt.show()
-plt.savefig('test.png')
-
 
 # %%
-from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_curve, auc
 from sklearn.metrics import RocCurveDisplay
 
 
-fpr, tpr, _ = roc_curve(label, pred_rgb, pos_label=1)
-roc_display = RocCurveDisplay(fpr=fpr, tpr=tpr).plot()
+fpr, tpr, _ = roc_curve(label, total_preds, pos_label=1)
+roc_auc = auc(fpr, tpr)
+roc_display = RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=roc_auc, estimator_name="proposed method").plot()
+plt.plot([0, 1], [0, 1], "k--", label="chance level (AUC = 0.5)")
+plt.axis("square")
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("AUROC curves")
+plt.legend()
+plt.show()
+
 
 # %%
-metric = torchmetrics.classification.BinaryROC(thresholds=None)
-fpr, tpr, thd = metric(pred, label)
-roc_display = RocCurveDisplay(fpr=fpr, tpr=tpr).plot()
+data_module = WalkDataModule(opt)
+data_module.setup()
+
+test_data = data_module.test_dataloader()
 
 # %%
-from sklearn.metrics import precision_recall_curve
-from sklearn.metrics import PrecisionRecallDisplay
-
-prec, recall, _ = precision_recall_curve(label, pred_rgb, pos_label=1)
-pr_display = PrecisionRecallDisplay(precision=prec, recall=recall).plot()
-
+video = next(iter(test_data))
 # %%
-# metric = torchmetrics.classification.BinaryPrecisionRecallCurve(thresholds=None)
-# prec, recall, threshodls = metric(pred, label)
-# pr_display = PrecisionRecallDisplay(precision=prec, recall=recall).plot()
+video_rgb = video['video'].cuda()
+optical_flow_model = Optical_flow()
 
+# pred the optical flow base RAFT
+video_flow = optical_flow_model.process_batch(video_rgb)
 # %%
-# import matplotlib.pyplot as plt
+one_video = video_rgb[2]
+# %%
+from matplotlib import pyplot as plt 
 
-# fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 8))
+c, f, h, w = one_video.shape
+for i in range(f):
 
-# roc_display.plot(ax=ax1)
-# pr_display.plot(ax=ax2)
-# plt.show()
+    plt.imshow(one_video[:, i, :].cpu().permute(1,2,0))
+    plt.show()
+# %%
+from torchvision.utils import flow_to_image
 
+flow_imgs = flow_to_image(video_flow[2].permute(1,0,2,3))
 
+f, c, h, w = flow_imgs.shape
+
+for i in range(f):
+    plt.imshow(flow_imgs[i].cpu().permute(1,2,0))
+    plt.show()
+# %%

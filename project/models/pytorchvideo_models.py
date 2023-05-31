@@ -18,6 +18,8 @@ from torchmetrics.functional.classification import \
     binary_auroc, \
     binary_confusion_matrix
 
+from pytorchvideo.transforms.functional import uniform_temporal_subsample
+
 # %%
 
 class WalkVideoClassificationLightningModule(LightningModule):
@@ -37,12 +39,24 @@ class WalkVideoClassificationLightningModule(LightningModule):
 
         if self.model_type == 'multi':
             self.model = MakeVideoModule(hparams)
-            self.model_rgb = self.model.make_walk_x3d(3)
-            self.model_flow = self.model.make_walk_x3d(2)
-        else:
+            # self.model_rgb = self.model.make_walk_x3d(3)
+            # self.model_flow = self.model.make_walk_x3d(2)
+
+            self.model_rgb = self.model.make_walk_resnet(3)
+            self.model_flow = self.model.make_walk_resnet(2)
+
+        elif self.model_type == 'single':
             self.model = MakeOriginalTwoStream(hparams)
             self.model_rgb = self.model.make_resnet(3)
             self.model_flow = self.model.make_resnet(2)
+
+        elif self.model_type == 'multi_single':
+            self.multi_model = MakeVideoModule(hparams)
+            self.single_model = MakeOriginalTwoStream(hparams)
+
+            # self.model_rgb = self.multi_model.make_walk_x3d(3)
+            self.model_rgb = self.multi_model.make_walk_resnet(3)
+            self.model_flow = self.single_model.make_resnet(2)
 
         # save the hyperparameters to the file and ckpt
         self.save_hyperparameters()
@@ -67,9 +81,11 @@ class WalkVideoClassificationLightningModule(LightningModule):
 
         if self.model_type == 'multi':
             loss = self.multi_logic(label, video)
-        else:
+        elif self.model_type == 'single':
             label = label.repeat_interleave(video.size()[2] - 1)
             loss = self.single_logic(label, video)
+        elif self.model_type == 'multi_single':
+            loss = self.multi_single_logic(label, video)
 
         return loss
 
@@ -87,7 +103,7 @@ class WalkVideoClassificationLightningModule(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         '''
-        val step when trainer.fit called.
+    val step when trainer.fit called.
 
         Args:
             batch (3D tensor): b, c, t, h, w
@@ -104,10 +120,12 @@ class WalkVideoClassificationLightningModule(LightningModule):
 
         if self.model_type == 'multi':
             loss = self.multi_logic(label, video)
-        else:
+        elif self.model_type == 'single':
             # not use the last frame
             label = label.repeat_interleave(video.size()[2] - 1)
             loss = self.single_logic(label, video)
+        elif self.model_type == 'multi_single':
+            loss = self.multi_single_logic(label, video)
         
         return loss
 
@@ -245,6 +263,55 @@ class WalkVideoClassificationLightningModule(LightningModule):
 
         return loss
     
+    def multi_single_logic(self, label: torch.Tensor, video: torch.Tensor):
+        
+        single_label = label.repeat_interleave(video.size()[2] - 1)
+
+        # pred the optical flow base RAFT
+        video_flow = self.optical_flow_model.process_batch(video) # b, c, t, h, w
+        # extract 16 for 3D CNN
+        video = uniform_temporal_subsample(video[:, :, :-1, :].cpu(), 16).cuda()
+
+        # save img
+        # for b in range(video.size()[0]):
+
+        #     for t in range(video.size()[2]-1):
+        #         save_image(video[b,:,t,:], fp='/workspace/test/rgb_%s_%s.jpg' % (b, t))
+        #         save_image(flow_to_image(video_flow[b,:,t,:]).float() / 255, fp='/workspace/test/flow_%s_%s.jpg' % (b, t))
+
+        b, c, t, h, w = video.shape
+
+        single_flow = video_flow.contiguous().view(-1, 2, h, w)
+
+        # eval model, feed data here
+        if self.training:
+            pred_video_rgb = self.model_rgb(video)
+            pred_video_flow = self.model_flow(single_flow)
+        else:
+            with torch.no_grad():
+                pred_video_rgb = self.model_rgb(video)
+                pred_video_flow = self.model_flow(single_flow)
+
+        if self.fusion == 'different_loss':
+
+            # squeeze(dim=-1) to keep the torch.Size([1]), not null.
+            loss_rgb = F.binary_cross_entropy_with_logits(pred_video_rgb.squeeze(dim=-1), label.float())
+            loss_flow = F.binary_cross_entropy_with_logits(pred_video_flow.squeeze(dim=-1), single_label.float())
+
+            loss = (loss_rgb + loss_flow) / 2
+
+            self.save_multi_single_log([pred_video_rgb, pred_video_flow], label, single_label, loss)
+        
+        elif self.fusion == 'sum_loss':
+
+            pred_sum = (pred_video_rgb.repeat_interleave(30) + pred_video_flow.squeeze(dim=-1)) / 2
+
+            loss = F.binary_cross_entropy_with_logits(pred_sum, single_label.float())
+
+            self.save_log([pred_sum], single_label, loss)
+
+        return loss
+    
     def save_log(self, pred_list: list, label: torch.Tensor, loss):
 
         if self.training:
@@ -378,3 +445,86 @@ class WalkVideoClassificationLightningModule(LightningModule):
                             'val_rgb_auroc': auroc, 
                             'val_rgb_cohen_kappa': cohen_kappa, 
                             })
+
+    def save_multi_single_log(self, pred_list: list, label: torch.Tensor, single_label: torch.Tensor, loss):
+
+        if self.training:
+
+            if self.fusion == 'different_loss':
+
+                pred_video_rgb = pred_list[0]
+                pred_video_flow = pred_list[1]
+
+                pred_video_rgb_sigmoid = torch.sigmoid(pred_video_rgb).squeeze(dim=-1)
+                pred_video_flow_sigmoid = torch.sigmoid(pred_video_flow).squeeze(dim=-1)
+
+                # video rgb metrics
+                accuracy = binary_accuracy(pred_video_rgb_sigmoid, label)
+                f1_score = binary_f1_score(pred_video_rgb_sigmoid, label)
+                auroc = binary_auroc(pred_video_rgb_sigmoid, label)
+                cohen_kappa = binary_cohen_kappa(pred_video_rgb_sigmoid, label)
+                cm = binary_confusion_matrix(pred_video_rgb_sigmoid, label)
+
+                # log to tensorboard
+                self.log_dict({'train_loss': loss,
+                            'train_rgb_acc': accuracy,
+                            'train_rgb_f1_score': f1_score, 
+                            'train_rgb_auroc': auroc, 
+                            'train_rgb_cohen_kappa': cohen_kappa, 
+                            })
+                
+                # single optical metrics
+                accuracy = binary_accuracy(pred_video_flow_sigmoid, single_label)
+                f1_score = binary_f1_score(pred_video_flow_sigmoid, single_label)
+                auroc = binary_auroc(pred_video_flow_sigmoid, single_label)
+                cohen_kappa = binary_cohen_kappa(pred_video_flow_sigmoid, single_label)
+                cm = binary_confusion_matrix(pred_video_flow_sigmoid, single_label)
+
+                # log to tensorboard
+                self.log_dict({'train_loss': loss,
+                            'train_flow_acc': accuracy,
+                            'train_flow_f1_score': f1_score, 
+                            'train_flow_auroc': auroc, 
+                            'train_flow_cohen_kappa': cohen_kappa, 
+                            })
+            
+        else:
+            
+            if self.fusion == 'different_loss':
+
+                pred_video_rgb = pred_list[0]
+                pred_video_flow = pred_list[1]
+
+                pred_video_rgb_sigmoid = torch.sigmoid(pred_video_rgb).squeeze(dim=-1)
+                pred_video_flow_sigmoid = torch.sigmoid(pred_video_flow).squeeze(dim=-1)
+
+                # video rgb metrics
+                accuracy = binary_accuracy(pred_video_rgb_sigmoid, label)
+                f1_score = binary_f1_score(pred_video_rgb_sigmoid, label)
+                auroc = binary_auroc(pred_video_rgb_sigmoid, label)
+                cohen_kappa = binary_cohen_kappa(pred_video_rgb_sigmoid, label)
+                cm = binary_confusion_matrix(pred_video_rgb_sigmoid, label)
+
+                # log to tensorboard
+                self.log_dict({'val_loss': loss,
+                            'val_rgb_acc': accuracy,
+                            'val_rgb_f1_score': f1_score, 
+                            'val_rgb_auroc': auroc, 
+                            'val_rgb_cohen_kappa': cohen_kappa, 
+                            })
+                
+                # single optical metrics
+                accuracy = binary_accuracy(pred_video_flow_sigmoid, single_label)
+                f1_score = binary_f1_score(pred_video_flow_sigmoid, single_label)
+                auroc = binary_auroc(pred_video_flow_sigmoid, single_label)
+                cohen_kappa = binary_cohen_kappa(pred_video_flow_sigmoid, single_label)
+                cm = binary_confusion_matrix(pred_video_flow_sigmoid, single_label)
+
+                # log to tensorboard
+                self.log_dict({'val_loss': loss,
+                            'val_flow_acc': accuracy,
+                            'val_flow_f1_score': f1_score, 
+                            'val_flow_auroc': auroc, 
+                            'val_flow_cohen_kappa': cohen_kappa, 
+                            })
+                

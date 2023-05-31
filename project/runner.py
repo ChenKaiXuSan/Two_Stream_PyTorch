@@ -19,7 +19,7 @@ def get_parameters():
     parser = ArgumentParser()
 
     # model hyper-parameters
-    parser.add_argument('--model', type=str, default='multi', choices=['multi', 'single'])
+    parser.add_argument('--model', type=str, default='multi', choices=['multi', 'single', 'multi_single'])
     parser.add_argument('--fusion', type=str, default='sum_loss', choices=['different_loss', 'sum_loss', 'concat'])
 
     # Training setting
@@ -46,7 +46,7 @@ if __name__ == '__main__':
     model = config.model
     fusion = config.fusion
 
-    if model == 'single':
+    if model == 'single' or model == 'multi_single':
         VIDEO_LENGTH = ['1']
         VIDEO_FRAME = ['31']
 
