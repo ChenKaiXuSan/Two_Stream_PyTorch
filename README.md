@@ -11,12 +11,12 @@ Assessment of adult spinal deformity with video is a very useful tool for early 
 At present, many gait recognition methods based on 3D convolutional neural networks (3D CNN) present outstanding performance, but still have some challenge in video-based diagnosis method.
 
 1. 3D CNNs can be sensitive to context.
-2. The body edge provides important spatial information that helps the network focus on the relevant regions for gait analysis and improves the overall performance of the recognition system. 
+2. The body edge provides important spatial information that helps the network focus on the relevant regions for gait analysis and improves the overall performance of the recognition system.
 3. Meanwhile, it remains a challenge for the extraction of spatiotemporal information from RGB video for gait and posture changes in walking.
-   
+
 In this study, we propose an advanced two-stream 3D CNN approach for video based spinal disease measurement, that integrates segmentation and optical flow analysis to capture gait motion changes.
-We design a two-stream 3D Convolutional Neural Network architecture that combines the spatial and temporal features. 
-The spatial stream processes the segmented body regions to extract static features related to spinal deformity, while the temporal stream analyzes the optical flow information to capture the dynamic aspects of spinal motion during gait. 
+We design a two-stream 3D Convolutional Neural Network architecture that combines the spatial and temporal features.
+The spatial stream processes the segmented body regions to extract static features related to spinal deformity, while the temporal stream analyzes the optical flow information to capture the dynamic aspects of spinal motion during gait.
 The fusion of static and dynamic features enhances the diagnostic accuracy of the system.
 Our experimental results demonstrate that the proposed method, incorporating segmentation and optical flow analysis, achieves superior performance in ASD diagnosis, with 0.7964 mean accuracy, 0.7599 F1 score and 0.8600 AUROC score.
 
@@ -39,9 +39,23 @@ Have a nice code. 😄
 
 ## Results
 
-<div align="center"> ![image](./imgs/compare_results.png) </div>
+<div align="center">
+<img src="./imgs/compare_results.png"/>
+</div>
 
-<div align="center"> ![image](./imgs/ablation_study.png) </div>
+Table I shows the comparison of the proposed method with other methods on the ASD dataset.
+We compare the proposed method with the state-of-the-art methods, including 3D CNN, two-stream method, and CNN with LSTM.
+The proposed method achieves the best performance in terms of accuracy, F1 score, and AUROC score.
+
+<div align="center">
+<img src="./imgs/ablation_study.png"/>
+</div>
+
+Table II shows the ablation study of the proposed method.
+We compare the proposed method with the baseline method, which is the 3D CNN network with/out the optical flow stream and segmentation method.
+The proposed method, which combine the segmentation and optical flow method, achieves the best performance in terms of accuracy, F1 score, and AUROC score.
+
+## Discussion
 
 ## How to run  
 
