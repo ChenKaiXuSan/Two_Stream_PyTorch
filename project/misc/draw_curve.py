@@ -38,10 +38,10 @@ _aucroc = torchmetrics.classification.BinaryAUROC()
 # %%
 class opt:
     num_workers = 8
-    batch_size = 4
+    batch_size = 32
 
-    model = "multi"
-    model_type = "multi"
+    model = "single"
+    model_type = "single"
     fusion = "sum"
 
     img_size = 224
@@ -60,8 +60,8 @@ DATA_PATH = "/workspace/data/split_pad_dataset_512"
 # %%
 def get_best_ckpt(length: str, frame: str, fold: str):
 
-    ckpt_path = '/workspace/Two_Stream_PyTorch/logs/multi/'
-    version = '518_1_17_multi_sum_loss'
+    ckpt_path = '/workspace/Two_Stream_PyTorch/logs/single/'
+    version = '515_1_31_single_sum_loss'
     ckpt_path_list = os.listdir(ckpt_path)
     ckpt_path_list.sort()
 

@@ -7,6 +7,8 @@ for rapid development.
 import os
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning import loggers as pl_loggers
+from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
+
 # callbacks
 from pytorch_lightning.callbacks import TQDMProgressBar, RichModelSummary, ModelCheckpoint, EarlyStopping
 from pl_bolts.callbacks import PrintTableMetricsCallback, TrainingDataMonitor
@@ -16,6 +18,11 @@ from models.pytorchvideo_models import WalkVideoClassificationLightningModule
 from argparse import ArgumentParser
 
 import pytorch_lightning
+import wandb
+
+# login the wandb
+wandb.login(anonymous="allow", key="eeece7dd9910c3cc2be6ae3e2f8b9b666f878066")
+
 # %%
 
 def get_parameters():
@@ -70,7 +77,7 @@ def get_parameters():
 def train(hparams):
 
     # fixme will occure bug, with deterministic = true
-    # seed_everything(42, workers=True)
+    seed_everything(42, workers=True)
 
     classification_module = WalkVideoClassificationLightningModule(hparams)
 
@@ -79,6 +86,11 @@ def train(hparams):
 
     # for the tensorboard
     tb_logger = pl_loggers.TensorBoardLogger(save_dir=os.path.join(hparams.log_path, hparams.model), name=hparams.log_version, version=hparams.fold)
+
+    # init wandb logger
+    wandb_logger = WandbLogger(name=hparams.log_version, 
+                            project='two_stream_3DCNN', 
+                            version=hparams.fold)
 
     # some callbacks
     progress_bar = TQDMProgressBar(refresh_rate=100)
