@@ -76,16 +76,16 @@ def WalkDataset(
 class WalkDataModule(LightningDataModule):
     def __init__(self, opt):
         super().__init__()
-        self._DATA_PATH = opt.data_path
-        self._TARIN_PATH = opt.train_path
+        self._DATA_PATH = opt.data.data_path
+        self._TARIN_PATH = opt.train.train_path
 
-        self._BATCH_SIZE = opt.batch_size
-        self._NUM_WORKERS = opt.num_workers
-        self._IMG_SIZE = opt.img_size
+        self._BATCH_SIZE = opt.train.batch_size
+        self._NUM_WORKERS = opt.data.num_workers
+        self._IMG_SIZE = opt.data.img_size
 
         # frame rate
-        self._CLIP_DURATION = opt.clip_duration
-        self.uniform_temporal_subsample_num = opt.uniform_temporal_subsample_num
+        self._CLIP_DURATION = opt.train.clip_duration
+        self.uniform_temporal_subsample_num = opt.train.uniform_temporal_subsample_num
 
         self.train_transform = Compose(
             [
@@ -160,6 +160,9 @@ class WalkDataModule(LightningDataModule):
             self.train_dataset,
             batch_size=self._BATCH_SIZE,
             num_workers=self._NUM_WORKERS,
+            pin_memory=True,
+            # shuffle=True,
+            drop_last=True,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -173,6 +176,9 @@ class WalkDataModule(LightningDataModule):
             self.val_dataset,
             batch_size=self._BATCH_SIZE,
             num_workers=self._NUM_WORKERS,
+            pin_memory=True,
+            # shuffle=False,
+            drop_last=True,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -186,15 +192,4 @@ class WalkDataModule(LightningDataModule):
             batch_size=self._BATCH_SIZE,
             num_workers=self._NUM_WORKERS,
         )
-
-    def predict_dataloader(self) -> DataLoader:
-        '''
-        create the Walk pred partition from the list of video labels
-        in directory and subdirectory. Add transform that subsamples and
-        normalizes the video before applying the scale, crop and flip augmentations.
-        '''
-        return DataLoader(
-            self.test_pred_dataset,
-            batch_size=self._BATCH_SIZE,
-            num_workers=self._NUM_WORKERS,
-        )
+    

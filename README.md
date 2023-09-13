@@ -102,3 +102,40 @@ A deep learning library for video understanding research.
 ### Torch Metrics
 
 [TorchMetrics](https://torchmetrics.readthedocs.io/en/latest/) is a collection of 80+ PyTorch metrics implementations and an easy-to-use API to create custom metrics.
+
+## Flow Chart
+
+Next is the flow chart of the whole process.
+
+1. The first step is to use the detection method to extract the character-centered region and save it as a video.
+2. The second step is to use the hidden-in RAFT based method to extract the optical flow of the corresponding images.
+3. The third step is to use the RGB images with the corresponding optical flow feed into a 3D CNN based network for training.
+4. The last step is to use the trained model to predict the spinal disease.
+
+```mermaid
+flowchart LR;
+    frame-->detection;
+    detection-->segmentation;
+    segmentation-->optical_flow;
+    optical_flow-->3D_CNN_OF;
+    segmentation-->3D_CNN_RGB;
+    3D_CNN_OF-->result;
+    3D_CNN_RGB-->result;
+```
+
+## Human tracking
+How to process the video data in the detection step.
+When there have more than one person in frame.
+
+```mermaid
+flowchart TD;
+    frame-->detection;
+    detection-->B(bbox);
+    B-->C{one bbox};
+    C-->|yes|D(screen cropping);
+    C-->|no|E[human tracking];
+    E-->F[reidentity];
+    F-->G(bbox);
+    G-->D;
+    D-->H(patient area);
+```

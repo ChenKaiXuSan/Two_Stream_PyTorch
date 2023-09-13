@@ -17,10 +17,10 @@ class MakeVideoModule(nn.Module):
 
         super().__init__()
 
-        self.model_class_num = hparams.model_class_num
-        self.model_depth = hparams.model_depth
+        self.model_class_num = hparams.model.model_class_num
+        self.model_depth = hparams.model.model_depth
 
-        self.transfor_learning = hparams.transfor_learning
+        self.transfor_learning = hparams.train.transfor_learning
 
     def make_walk_resnet(self, input_channel:int = 3) -> nn.Module:
 

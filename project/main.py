@@ -1,10 +1,25 @@
 '''
-this project were based the pytorch, pytorch lightning and pytorch video library, 
+File: main.py
+Project: project
+Created Date: 2023-03-20 16:13:02
+Author: chenkaixu
+-----
+Comment:
+This project were based the pytorch, pytorch lightning and pytorch video library, 
 for rapid development.
+ 
+Have a good code time!
+-----
+Last Modified: 2023-09-13 14:51:55
+Modified By: chenkaixu
+-----
+HISTORY:
+Date 	By 	Comments
+------------------------------------------------
+
 '''
 
-# %%
-import os
+import os, logging, time, sys
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
@@ -15,82 +30,34 @@ from pl_bolts.callbacks import PrintTableMetricsCallback, TrainingDataMonitor
 
 from dataloader.data_loader import WalkDataModule
 from models.pytorchvideo_models import WalkVideoClassificationLightningModule
-from argparse import ArgumentParser
+from train import TwoStreamLightningModule
 
 import pytorch_lightning
 import wandb
+import hydra
 
 # login the wandb
 wandb.login(anonymous="allow", key="eeece7dd9910c3cc2be6ae3e2f8b9b666f878066")
-
-# %%
-
-def get_parameters():
-    '''
-    The parameters for the model training, can be called out via the --h menu
-    '''
-    parser = ArgumentParser()
-
-    # model hyper-parameters
-    parser.add_argument('--model', type=str, default='multi', choices=['multi', 'single', 'multi_single'])
-    parser.add_argument('--fusion', type=str, default='different_loss', choices=['different_loss', 'sum_loss', 'concat'])
-    parser.add_argument('--img_size', type=int, default=224)
-    parser.add_argument('--version', type=str, default='test', help='the version of logger, such data')
-    parser.add_argument('--model_class_num', type=int, default=1, help='the class num of model')
-    parser.add_argument('--model_depth', type=int, default=50, choices=[50, 101, 152], help='the depth of used model')
-
-    # Training setting
-    parser.add_argument('--max_epochs', type=int, default=50, help='numer of epochs of training')
-    parser.add_argument('--batch_size', type=int, default=3, help='batch size for the dataloader')
-    parser.add_argument('--num_workers', type=int, default=4, help='dataloader for load video')
-    parser.add_argument('--clip_duration', type=int, default=1, help='clip duration for the video')
-    parser.add_argument('--uniform_temporal_subsample_num', type=int,
-                        default=8, help='num frame from the clip duration')
-    parser.add_argument('--gpu_num', type=int, default=0, choices=[0, 1], help='the gpu number which to train')
-
-    # Transfor_learning
-    parser.add_argument('--transfor_learning', action='store_true', help='if use the transformer learning')
-    # pre process flag
-    parser.add_argument('--pre_process_flag', action='store_true', help='if use the pre process video, which detection.')
-
-    # TTUR
-    parser.add_argument('--lr', type=float, default=0.0001, help='learning rate for optimizer')
-    parser.add_argument('--beta1', type=float, default=0.5)
-    parser.add_argument('--beta2', type=float, default=0.999)
-
-    # Path
-    parser.add_argument('--data_path', type=str, default="/workspace/data/dataset/", help='meta dataset path')
-    parser.add_argument('--split_pad_data_path', type=str, default="/workspace/data/split_pad_dataset_512/",
-                        help="split and pad dataset with detection method.")
-    parser.add_argument('--seg_data_path', type=str, default="/workspace/data/segmentation_dataset_512",
-                        help="segmentation dataset with mediapipe, with 5 fold cross validation.")
-
-    parser.add_argument('--log_path', type=str, default='./logs', help='the lightning logs saved path')
-
-    # add the parser to ther Trainer
-    # parser = Trainer.add_argparse_args(parser)
-
-    return parser.parse_known_args()
-
-# %%
 
 def train(hparams):
 
     # fixme will occure bug, with deterministic = true
     seed_everything(42, workers=True)
 
-    classification_module = WalkVideoClassificationLightningModule(hparams)
+    classification_module = TwoStreamLightningModule(hparams)
 
     # instance the data module
     data_module = WalkDataModule(hparams)
 
     # for the tensorboard
-    tb_logger = pl_loggers.TensorBoardLogger(save_dir=os.path.join(hparams.log_path, hparams.model), name=hparams.log_version, version=hparams.fold)
+    # tb_logger = pl_loggers.TensorBoardLogger(save_dir=os.path.join(hparams.log_path, hparams.model), name=hparams.log_version, version=hparams.fold)
 
     # init wandb logger
-    wandb_logger = WandbLogger(name=hparams.log_version, 
-                            project='two_stream_3DCNN', 
-                            version=hparams.fold)
+    wandb_logger = WandbLogger(name='_'.join([hparams.train.version, hparams.model.model, hparams.train.fold]), 
+                            project='two_stream_3DCNN',
+                            save_dir=hparams.train.log_path, # FIXME log path have some err
+                            version=hparams.train.fold,
+                            log_model="all")
 
     # some callbacks
     progress_bar = TQDMProgressBar(refresh_rate=100)
@@ -98,20 +65,20 @@ def train(hparams):
 
     # define the checkpoint becavier.
     model_check_point = ModelCheckpoint(
-        filename='{epoch}-{val_loss:.2f}-{val_rgb_acc:.4f}-{val_flow_acc:.4f}',
+        filename="{epoch}-{val/loss:.2f}-{val/video_acc:.4f}-{val/of_acc:.4f}",
         auto_insert_metric_name=True,
-        monitor="val_rgb_acc",
-        mode="max",
-        save_last=True,
-        save_top_k=3,
+        monitor="val/loss",
+        mode="min",
+        save_last=False,
+        save_top_k=2,
 
     )
 
     # define the early stop.
     early_stopping = EarlyStopping(
-        monitor='val_rgb_acc',
+        monitor='val/loss',
         patience=5,
-        mode='max',
+        mode='min',
     )
 
     # bolts callbacks
@@ -119,10 +86,10 @@ def train(hparams):
     monitor = TrainingDataMonitor(log_every_n_steps=50)
 
     trainer = Trainer(
-                      devices=[hparams.gpu_num,],
+                      devices=[hparams.train.gpu_num,],
                       accelerator="gpu",
-                      max_epochs=hparams.max_epochs,
-                      logger=tb_logger,
+                      max_epochs=hparams.train.max_epochs,
+                      logger= wandb_logger, # tb_logger
                       #   log_every_n_steps=100,
                       check_val_every_n_epoch=1,
                       callbacks=[progress_bar, rich_model_summary, table_metrics_callback, monitor, model_check_point, early_stopping],
@@ -138,37 +105,45 @@ def train(hparams):
     # trainer.logged_metrics
     # trainer.callback_metrics
 
-    Acc_list = trainer.validate(classification_module, data_module, ckpt_path='best')
+    Acc_list = trainer.validate(classification_module, data_module) # , ckpt_path='best')
 
     # return the best acc score.
     return model_check_point.best_model_score.item()
- 
 
-# %%
-if __name__ == '__main__':
-
-    # for test in jupyter
-    config, unkonwn = get_parameters()
+@hydra.main(
+        version_base=None,
+        config_path='/workspace/Two_Stream_PyTorch/configs/',
+        config_name='config.yaml',
+        )
+def init_params(config):
 
     #############
     # K Fold CV
     #############
 
-    print('*' * 50)
-    print('the pre precess flag is: %s' % str(config.pre_process_flag))
-    if config.pre_process_flag:
-        # DATA_PATH = config.seg_data_path
-        DATA_PATH = config.split_pad_data_path
-    else:
-        DATA_PATH = config.data_path
+    DATE = str(time.localtime().tm_mon) + str(time.localtime().tm_mday)
+    DATA_PATH = config.data.data_path
 
-    print('so the data path is: %s' % DATA_PATH)
-    print('*' * 50)
+    # set the version
+    uniform_temporal_subsample_num = config.train.uniform_temporal_subsample_num
+    clip_duration = config.train.clip_duration
+    config.train.version = "_".join(
+        [DATE, str(clip_duration), str(uniform_temporal_subsample_num)]
+    )
+
+    # output log to file
+    log_path = (
+        "/workspace/Two_Stream_PyTorch/logs/"
+        + "_".join([config.train.version, config.model.model])
+        + ".log"
+    )
+    sys.stdout = open(log_path, "w")
 
     # get the fold number
     fold_num = os.listdir(DATA_PATH)
     fold_num.sort()
-    fold_num.remove('raw')
+    if "raw" in fold_num:
+        fold_num.remove("raw")
 
     store_Acc_Dict = {}
     sum_list = []
@@ -178,23 +153,24 @@ if __name__ == '__main__':
         # start k Fold CV
         #################
 
-        print('#' * 50)
-        print('Strat %s' % fold)
-        print('#' * 50)
+        logging.info("#" * 50)
+        logging.info("Start %s" % fold)
+        logging.info("#" * 50)
 
-        config.train_path = os.path.join(DATA_PATH, fold)
-        config.fold = fold
-
-        # connect the version + model + depth, for tensorboard logger.
-        config.log_version = config.version + '_' + config.model + '_' + config.fusion
+        config.train.train_path = os.path.join(DATA_PATH, fold)
+        config.train.fold = fold
 
         Acc_score = train(config)
 
         store_Acc_Dict[fold] = Acc_score
         sum_list.append(Acc_score)
 
-    print('#' * 50)
-    print('different fold Acc:')
-    print(store_Acc_Dict)
-    print('Final avg Acc is: %s' % (sum(sum_list) / len(sum_list)))
-    
+    logging.info("#" * 50)
+    logging.info("different fold Acc:")
+    logging.info(store_Acc_Dict)
+    logging.info("Final avg Acc is: %s" % (sum(sum_list) / len(sum_list)))
+
+if __name__ == '__main__':
+
+    os.environ["HYDRA_FULL_ERROR"] = "1"
+    init_params()
