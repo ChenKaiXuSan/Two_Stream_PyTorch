@@ -10,7 +10,7 @@ for rapid development.
  
 Have a good code time!
 -----
-Last Modified: 2023-09-13 14:51:55
+Last Modified: 2023-09-15 12:54:35
 Modified By: chenkaixu
 -----
 HISTORY:
@@ -55,7 +55,7 @@ def train(hparams):
     # init wandb logger
     wandb_logger = WandbLogger(name='_'.join([hparams.train.version, hparams.model.model, hparams.train.fold]), 
                             project='two_stream_3DCNN',
-                            save_dir=hparams.train.log_path, # FIXME log path have some err
+                            save_dir=hparams.train.log_path,
                             version=hparams.train.fold,
                             log_model="all")
 
@@ -65,13 +65,12 @@ def train(hparams):
 
     # define the checkpoint becavier.
     model_check_point = ModelCheckpoint(
-        filename="{epoch}-{val/loss:.2f}-{val/video_acc:.4f}-{val/of_acc:.4f}",
-        auto_insert_metric_name=True,
-        monitor="val/loss",
-        mode="min",
+        filename="{epoch}-{val/loss:.2f}-{val/acc:.4f}",
+        auto_insert_metric_name=False,
+        monitor="val/acc",
+        mode="max",
         save_last=False,
         save_top_k=2,
-
     )
 
     # define the early stop.
@@ -102,10 +101,11 @@ def train(hparams):
     # training and val
     trainer.fit(classification_module, data_module)
 
-    # trainer.logged_metrics
-    # trainer.callback_metrics
+    # TODO take code the record the val figure, in wandb and local file.
+    trainer.validate(classification_module, data_module) # , ckpt_path='best')
 
-    Acc_list = trainer.validate(classification_module, data_module) # , ckpt_path='best')
+    # when one fold finish, close the wandb logger.
+    wandb.finish()
 
     # return the best acc score.
     return model_check_point.best_model_score.item()

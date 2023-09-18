@@ -17,6 +17,8 @@ Modified By: chenkaixu
 HISTORY:
 Date 	By 	Comments
 ------------------------------------------------
+2023-09-17	KX.C	the lr scheduler need to set patience=2, or it will not work.
+2023-09-15	KX.C	i think about the metrics, we need sum the different predict score.
 2023-09-13	KX.C	if self.log have some promble, can use wandb.log to replace.
 2023-09-13	KX.C	when calc the acc, if not drop last will occure err, tuple index out of range.
 
@@ -93,35 +95,20 @@ class TwoStreamLightningModule(LightningModule):
         video_preds = self.video_cnn(video).squeeze()
         of_preds = self.of_cnn(video_flow).squeeze()
 
-        video_loss = F.binary_cross_entropy_with_logits(video_preds, label)
-        of_loss = F.binary_cross_entropy_with_logits(of_preds, label)
+        total_preds = (video_preds + of_preds) / 2
+        total_loss = F.binary_cross_entropy_with_logits(total_preds, label)
 
-        total_loss = (video_loss + of_loss) / 2
+        self.save_log([total_preds], label, train_flag=True)
 
-        self.save_log([video_preds, of_preds], label, train_flag=True)
-
-        # return [video, video_flow]
         return total_loss
 
-    # TODO maybe need to store the first batch image and flow.
-    # def training_epoch_end(self, outputs: list) -> None:
-
-    #     images = wandb.Image(
-    #         outputs[0][0][0].permute(1,0,2,3).cpu()*255,
-    #     )
-    #     flows = wandb.Image(
-    #         outputs[0][1][0].permute(1,0,2,3).cpu()*255,
-    #     )
-
-    #     wandb.log({"train/image_batch0": images,
-    #                "train/flow_batch0": flows})
+    def on_train_epoch_end(self) -> None:
+        self.log("lr", self.lr)
 
     def on_validation_start(self) -> None:
+        wandb.define_metric("val/loss", summary="min")
+        wandb.define_metric("val/acc", summary="max")
 
-        wandb.define_metric('val/loss', summary='min')
-        wandb.define_metric('val/video_acc', summary='max')
-        wandb.define_metric('val/of_acc', summary='max')
-    
     def validation_step(self, batch: torch.Tensor, batch_idx: int):
         # input and model define
         video = batch["video"].detach()  # b, c, t, h, w
@@ -131,27 +118,30 @@ class TwoStreamLightningModule(LightningModule):
 
         video_flow = self.optical_flow_model.process_batch(video)  # b, c, t, h, w
 
-        with torch.no_grad():
-            video_preds = self.video_cnn(video).squeeze()
-            of_preds = self.of_cnn(video_flow).squeeze()
+        video_preds = self.video_cnn(video).squeeze()
+        of_preds = self.of_cnn(video_flow).squeeze()
 
-        self.save_log([video_preds, of_preds], label, train_flag=False)
+        # * sum the different predict score.
+        total_preds = (video_preds + of_preds) / 2
+
+        self.save_log([total_preds], label, train_flag=False)
 
         # save one batch image and flow
         if batch_idx == 0:
-            images = wandb.Image(
-                video.resize(b*t, 3, h, w).cpu() * 255,
-            )
+            images = wandb.Image(video[0].permute(1,0,2,3).cpu())
+            flow_image = flow_to_image(video_flow[0].permute(1,0,2,3)) # f, 2, h, w > f, 3, h, w
             flows = wandb.Image(
-                video_flow.resize(b*(t-1), 2, h, w).cpu() * 255,
+                flow_image.resize(t - 1, 3, h, w).cpu() / 255,
             )
 
-            wandb.log({f"Media/val_image_batch0_{label.tolist()}": images, f"Media/val_flow_batch0_{label.tolist()}": flows})
+            wandb.log(
+                {
+                    f"Media/val_image_batch0": images,
+                    f"Media/val_flow_batch0": flows,
+                }
+            )
 
         # return video, video_flow  # video_preds_sigmoid, label
-
-    def on_validation_epoch_end(self) -> None:
-        self.log("lr", self.lr)
 
     def configure_optimizers(self):
         """
@@ -167,7 +157,9 @@ class TwoStreamLightningModule(LightningModule):
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
-                "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, "min"),
+                "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    optimizer, "min", verbose=True, patience=2, 
+                ),
                 "monitor": "val/loss",
             },
         }
@@ -190,48 +182,74 @@ class TwoStreamLightningModule(LightningModule):
         else:
             flag = "val"
 
-        video_preds = pred_list[0]
-        of_preds = pred_list[1]
+        if len(pred_list) == 1:
+            preds = pred_list[0]
 
-        video_preds_sigmoid = torch.sigmoid(video_preds)
-        of_preds_sigmoid = torch.sigmoid(of_preds)
+            pred_sigmoid = torch.sigmoid(preds)
 
-        video_loss = F.binary_cross_entropy_with_logits(video_preds, label)
-        of_loss = F.binary_cross_entropy_with_logits(of_preds, label)
+            total_loss = F.binary_cross_entropy_with_logits(preds, label)
 
-        total_loss = (video_loss + of_loss) / 2
-        self.log(f"{flag}/loss", total_loss)
+            # video rgb metrics
+            accuracy = binary_accuracy(pred_sigmoid, label)
+            precision = binary_precision(pred_sigmoid, label)
+            f1_score = binary_f1_score(pred_sigmoid, label)
+            auroc = binary_auroc(pred_sigmoid, label)
+            cm = binary_confusion_matrix(pred_sigmoid, label)
 
-        # video metrics
-        video_acc = binary_accuracy(video_preds_sigmoid, label)
-        video_precision = binary_precision(video_preds_sigmoid, label)
-        video_recall = binary_recall(video_preds_sigmoid, label)
-        video_confusion_matrix = binary_confusion_matrix(video_preds_sigmoid, label)
+            # log to tensorboard
+            self.log_dict(
+                {
+                    f"{flag}/loss": total_loss,
+                    f"{flag}/acc": accuracy,
+                    f"{flag}/precision": precision,
+                    f"{flag}/f1_score": f1_score,
+                    f"{flag}/auroc": auroc,
+                }
+            )
 
-        self.log_dict(
-            {
-                f"{flag}/video_acc": video_acc,
-                f"{flag}/video_precision": video_precision,
-                f"{flag}/video_recall": video_recall,
-            }
-        )
+        elif len(pred_list) == 2:
+            video_preds = pred_list[0]
+            of_preds = pred_list[1]
 
-        logging.info("*" * 50)
-        logging.info(f"{flag}/video_confusion_matrix: %s" % video_confusion_matrix)
+            video_preds_sigmoid = torch.sigmoid(video_preds)
+            of_preds_sigmoid = torch.sigmoid(of_preds)
 
-        # of metrics
-        of_acc = binary_accuracy(of_preds_sigmoid, label)
-        of_precision = binary_precision(of_preds_sigmoid, label)
-        of_recall = binary_recall(of_preds_sigmoid, label)
-        of_confusion_matrix = binary_confusion_matrix(of_preds_sigmoid, label)
+            video_loss = F.binary_cross_entropy_with_logits(video_preds, label)
+            of_loss = F.binary_cross_entropy_with_logits(of_preds, label)
 
-        self.log_dict(
-            {
-                f"{flag}/of_acc": of_acc,
-                f"{flag}/of_precision": of_precision,
-                f"{flag}/of_recall": of_recall,
-            }
-        )
+            total_loss = (video_loss + of_loss) / 2
+            self.log(f"{flag}/loss", total_loss)
 
-        logging.info("*" * 50)
-        logging.info(f"{flag}/of_confusion_matrix: %s" % of_confusion_matrix)
+            # video metrics
+            video_acc = binary_accuracy(video_preds_sigmoid, label)
+            video_precision = binary_precision(video_preds_sigmoid, label)
+            video_recall = binary_recall(video_preds_sigmoid, label)
+            video_confusion_matrix = binary_confusion_matrix(video_preds_sigmoid, label)
+
+            self.log_dict(
+                {
+                    f"{flag}/video_acc": video_acc,
+                    f"{flag}/video_precision": video_precision,
+                    f"{flag}/video_recall": video_recall,
+                }
+            )
+
+            logging.info("*" * 50)
+            logging.info(f"{flag}/video_confusion_matrix: %s" % video_confusion_matrix)
+
+            # of metrics
+            of_acc = binary_accuracy(of_preds_sigmoid, label)
+            of_precision = binary_precision(of_preds_sigmoid, label)
+            of_recall = binary_recall(of_preds_sigmoid, label)
+            of_confusion_matrix = binary_confusion_matrix(of_preds_sigmoid, label)
+
+            self.log_dict(
+                {
+                    f"{flag}/of_acc": of_acc,
+                    f"{flag}/of_precision": of_precision,
+                    f"{flag}/of_recall": of_recall,
+                }
+            )
+
+            logging.info("*" * 50)
+            logging.info(f"{flag}/of_confusion_matrix: %s" % of_confusion_matrix)
