@@ -99,3 +99,10 @@ One way is to use the segmentation to get the clean body edge, and then use the 
 On the other word, clean body edge can only contain the human part information, will drop the irrelevant information, such as the background.
 
 We hope this visualization can help you understand the importance of the segmentation in human gait.
+
+## Problem
+
+The only one problem is that the segmentation image will lost many information, such as the background.
+We do not konw if the background is useful for the gait recognition.
+But in my opinion, the background is not useful for the gait recognition, because the background is always changing, and the background is not the human part.
+On the other word, the background will include the irrelevant information, and the irrelevant information will make the CNNs confused.

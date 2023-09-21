@@ -1,6 +1,7 @@
-# Why we need optical flow in human gait recognition?
-
-## A disscussion about the Optical Flow of the gait image in time series.
+Why we need optical flow in human gait recognition?
+===
+A disscussion about the Optical Flow of the gait image in time series.
+---
 
 ## Introduction
 
@@ -22,11 +23,68 @@ Why 3D CNNs is not enough?
 
 ## Optical Flow
 
+In general, the optical flow is a 2D vector field, which can be used to describe the motion information in two continuous frames, in time series.
+It can calculate the motion information in two continuous frames, in pixel bias level.
+But, if we do not use the continuous frames, instead, we use the uncontinuous frames, how the optical flow results will be?
+
 The next figure is a color wheel for the optical flow.
 The legend for optical visualization shows how direction is mapped to color and magnitude is mapped to saturation.
 
 ![color wheel](https://hci.iwr.uni-heidelberg.de/sites/default/files/node/images/687377970/legend_flow.png)
-<center>Figure 1. The color wheel for the optical flow. Reference from [^1]</center>
+
+Figure 1. The color wheel for the optical flow. Reference from [^1].
+
+## How the optical flow results will be?
+
+Here, we visualize the optical flow results, in different type.
+
+### Flow to image
+
+![vis_flow](./imgs/optical_flow/visualization_OF_clean_background.png)
+
+<center>Figure 1. The visualization of the optical flow results. Transform the optical flow to RGB image.</center>
+
+### Different dimension of the optical flow
+
+
+
+## What is the different between continuous and uncontinuous frames for optical flow predict?
+
+In this section, we will discuss the different between continuous and uncontinuous frames for optical flow predict.
+As we konw, the Optical Flow predict is based on the continuous frames, in time series.
+But the question is, if we use the uncontinuous frames, how the optical flow results will be?
+Is it perform well as the continuous frames?
+
+![subsample](./imgs/optical_flow/uniform_temporal_subsample.png)
+<center>Figure 2. The uniform temporal subsample to extract the uncontinuous frame from raw FPS.</center>
+
+Figure 2 is the frame subsample method used in training.
+For train model, we uniformly subsample the frames from the raw FPS.
+But the problem is that, when use the subsample method to extracted frames, it will be uncontinuous frames.
+
+![compare_frame](./imgs/optical_flow/compare_frame.png)
+
+<center>Figure 3. The predicted Optical Flow results, compared between continuous and uncontinuous frames.</center>
+
+Figure 3 show the predicted Optical Flow results, compared between continuous and uncontinuous frames.
+
+- The upper of the figure is the uncontinuous frames, it uniformly subsample 8 frames from the raw 30 FPS,
+- The lower of the figure is the continuous frames, it include all the 30 frames from the raw 30 FPS.
+
+The right cloumn of the figure is the predicted Optical Flow results, with continuous and uncontinuous frames.
+
+
+## How to get a clean Optical Flow edge results?
+
+As we know, the Optical Flow method calculate the motion information in pixel bias level.
+But, even if we use the segmentated frame (which means have clean body edge), the Optical Flow results is still noisy, in background.
+The reason we think is that, the two continuous frames have different pixel bias in background, so the Optical Flow results will be noisy, in background.
+
+In this research, we need to find a way to get a clean Optical Flow edge results, which means the Optical Flow results only contain the human part motion change information, not the background.
+
+So, how to get a clean Optical Flow edge results?
+
+A simple enough way is to use the mask to get the clean optical flow body edge, it means we can overlay the mask on the optical flow results, and then we can get the clean optical flow body edge.
 
 ## Process
 
@@ -36,12 +94,25 @@ For visualize the importance of the optical flow in human gait, we simulated a n
 graph LR
     A[Input] --> B[Segmentation]
     B --> C[Optical Flow]
-    C --> D[3D CNN]
-    D --> E[Batch Normalization 3D]
-    E --> F[Max Pooling 3D]
+    C --> B
+    B --> D[Optical Flow feature]
+    D --> E[3D CNN]
+    E --> F[Batch Normalization 3D]
+    F --> G[Max Pooling 3D]
 ```
 
-# todo: add the visualization of the optical flow
+## Dose the optical flow method also need clean background?
+
+In this section, we will discuss the different between clean background and noisy background for optical flow predict.
+
+![compare_background](./imgs/optical_flow/compare_OF.png)
+
+### OF predicted with clean background
+
+### OF predicted without clean background
+
+
+<!-- # todo: add the visualization of the optical flow -->
 Here we list the parameters of different layers.
 (The code is implemented by PyTorch)
 
@@ -84,7 +155,7 @@ The Pooling layer is always used after the Convolution layer, on other word, the
 
 The kernel size is set to (1, 3, 3), which means the kernel size in time dimension is (1, 2, 2), and the kernel size in height and width dimension is (0, 1, 1).
 
-> **Note** 
+> [!Note] 
 > The Pooling layer do not include the learnable parameters. It just decrease the size of the feature map.
 
 ## Visualization
@@ -117,3 +188,4 @@ We hope this visualization can help you understand the importance of the segment
 ## Reference
 
 [^1]: [A Toolbox to Visualize Dense Image Correspondences](https://hci.iwr.uni-heidelberg.de/content/toolbox-visualize-dense-image-correspondences)
+[^2]: [RAFT: Recurrent All-Pairs Field Transforms for Optical Flow](https://arxiv.org/abs/2003.12039)
